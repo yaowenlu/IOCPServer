@@ -333,6 +333,7 @@ bool CClientSocket::OnSendCompleted(DWORD dwSendCount)
 
 yServerSocket::yServerSocket()
 {
+	//int iRet = dzlog_init("test_conf.conf", "my_cat");
 	m_bWorking = false;
 	m_iWSAInitResult = -1;
 	m_usThreadNum = 0;

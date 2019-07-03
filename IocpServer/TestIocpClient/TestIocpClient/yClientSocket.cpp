@@ -2,6 +2,9 @@
 #include "yClientSocket.h"
 #include <WS2tcpip.h>
 
+#pragma comment(lib,"ws2_32.lib")
+#pragma comment(lib,"zlog.lib")
+
 CClientManager::CClientManager()
 {
 	m_mapClientConnect.clear();
@@ -336,12 +339,18 @@ bool CClientSocket::OnSendCompleted(DWORD dwSendCount)
 
 yClientSocket::yClientSocket()
 {
+	char szPath[MAX_PATH] = {0};
+	GetCurrentDirectory(MAX_PATH, szPath);
+	std::string strFullPath = szPath;
+	strFullPath += "/conf/test_default.conf";
+	int iRet = dzlog_init(strFullPath.c_str(), "my_cat");
 	m_bWorking = false;
 	m_iWSAInitResult = -1;
 	m_usThreadNum = 0;
 	m_hThreadEvent = NULL;
 	m_hCompletionPort = NULL;
 	m_pClientManager = nullptr;
+	dzlog_debug("create yClientSocket");
 }
 
 yClientSocket::~yClientSocket()
@@ -356,6 +365,7 @@ yClientSocket::~yClientSocket()
 		delete m_pClientManager;
 		m_pClientManager = nullptr;
 	}
+	dzlog_debug("release yClientSocket");
 }
 
 //Í£Ö¹·þÎñ
@@ -394,6 +404,7 @@ int yClientSocket::DisConnectServer()
 
 int yClientSocket::ConnectServer(std::string strIp, unsigned short usPort, unsigned short usConnectNum)
 {
+	dzlog_debug("ConnectServer strIp=%s, usPort=%d, usConnectNum=%d", strIp.c_str(), usPort, usConnectNum);
 	if(m_bWorking)
 	{
 		return 0;

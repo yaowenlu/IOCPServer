@@ -2,7 +2,9 @@
 #define Y_CLIENT_SOCKET_H
 
 #include <winsock2.h>
-#pragma comment(lib,"ws2_32.lib")
+//zlog»’÷æø‚
+#include "zlog.h"
+
 #include "afxwin.h"
 #include <map>
 #include <list>

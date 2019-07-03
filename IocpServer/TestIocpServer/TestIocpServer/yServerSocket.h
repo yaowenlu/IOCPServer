@@ -3,6 +3,10 @@
 
 #include <winsock2.h>
 #pragma comment(lib,"ws2_32.lib")
+//zlog日志库
+#include "zlog.h"
+#pragma comment(lib,"zlog.lib")
+
 #include "afxwin.h"
 #include <map>
 #include <list>
@@ -176,6 +180,7 @@ private:
 	HANDLE m_hListenThread;//监听线程句柄
 	SOCKET m_lsSocket;//监听socket
 	CClientManager *m_pClientManager;
+	zlog_category_t *m_pZlogCat;
 };
 
 #endif
