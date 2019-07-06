@@ -3,18 +3,7 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * The zlog Library is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * The zlog Library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
+ * Licensed under the LGPL v2.1, see the file COPYING in base directory.
  */
 
 #include <stdlib.h>
@@ -74,6 +63,11 @@ void zc_hashtable_del(zc_hashtable_t * a_table)
 	size_t i;
 	zc_hashtable_entry_t *p;
 	zc_hashtable_entry_t *q;
+
+	if (!a_table) {
+		zc_error("a_table[%p] is NULL, just do nothing", a_table);
+		return;
+	}
 
 	for (i = 0; i < a_table->tab_size; i++) {
 		for (p = (a_table->tab)[i]; p; p = q) {
@@ -242,6 +236,11 @@ void zc_hashtable_remove(zc_hashtable_t * a_table, const void *a_key)
 	zc_hashtable_entry_t *p;
 	unsigned int i;
 
+        if (!a_table || !a_key) {
+		zc_error("a_table[%p] or a_key[%p] is NULL, just do nothing", a_table, a_key);
+		return;
+        }
+
 	i = a_table->hash(a_key) % a_table->tab_size;
 	for (p = (a_table->tab)[i]; p; p = p->next) {
 		if (a_table->equal(a_key, p->key))
@@ -249,7 +248,7 @@ void zc_hashtable_remove(zc_hashtable_t * a_table, const void *a_key)
 	}
 
 	if (!p) {
-		zc_error("p[%p] not found in hashtable");
+		zc_error("p[%p] not found in hashtable", p);
 		return;
 	}
 
@@ -329,4 +328,3 @@ int zc_hashtable_str_equal(const void *key1, const void *key2)
 {
 	return (STRCMP((const char *)key1, ==, (const char *)key2));
 }
-

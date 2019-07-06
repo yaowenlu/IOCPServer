@@ -18,6 +18,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include "zlog.h"
 
 int main(int argc, char** argv)
@@ -25,7 +26,7 @@ int main(int argc, char** argv)
 	int rc;
 	zlog_category_t *zc;
 
-	//rc = zlog_init(".\\test_hello.conf");
+	//rc = zlog_init("C:\\Users\\Administrator\\Desktop\\IOCPServer\\IocpServer\\WinZlog\\zlog\\test\\test_hello.conf");
 	rc = zlog_init("");
 	
 	if (rc) {

@@ -3,18 +3,7 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * The zlog Library is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * The zlog Library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
+ * Licensed under the LGPL v2.1, see the file COPYING in base directory.
  */
 
 #include "fmacros.h"
@@ -38,11 +27,8 @@ static void zc_time(char *time_str, size_t time_str_size)
 
 	time(&tt);
 	localtime_r(&tt, &local_time);
-#ifdef _MSC_VER
-	strftime(time_str, time_str_size, "%m-%d %H:%M:%S", &local_time);
-#else
 	strftime(time_str, time_str_size, "%m-%d %T", &local_time);
-#endif
+
 	return;
 }
 
@@ -58,13 +44,8 @@ int zc_profile_inner(int flag, const char *file, const long line, const char *fm
 
 	if (!init_flag) {
 		init_flag = 1;
-		_putenv( "ZLOG_PROFILE_DEBUG=d:\\tmp\\debug.log" ); // C4996
-		_putenv( "ZLOG_PROFILE_ERROR=d:\\tmp\\error.log" ); // C4996
 		debug_log = getenv("ZLOG_PROFILE_DEBUG");
 		error_log = getenv("ZLOG_PROFILE_ERROR");
-		printf("debug_log:%s\n",debug_log);
-		printf("error_log:%s\n",error_log);
-
 	}
 
 	switch (flag) {

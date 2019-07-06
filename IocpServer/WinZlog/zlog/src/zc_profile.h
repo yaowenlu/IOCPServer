@@ -3,18 +3,7 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * The zlog Library is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * The zlog Library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
+ * Licensed under the LGPL v2.1, see the file COPYING in base directory.
  */
 
 #ifndef __zc_profile_h
@@ -27,7 +16,7 @@
 	if(!(expr)) { \
 		zc_error(#expr" is null or 0"); \
 		return rv; \
-	}
+	} 
 
 enum zc_profile_flag {
 	ZC_DEBUG = 0,
@@ -36,7 +25,7 @@ enum zc_profile_flag {
 };
 
 
-#if defined __STDC_VERSION__ && __STDC_VERSION__ >= 199901L
+#if (defined __STDC_VERSION__ && __STDC_VERSION__ >= 199901L) || (defined _MSC_VER)
 	#define zc_debug(...) \
 		zc_profile_inner(ZC_DEBUG, __FILE__, __LINE__, __VA_ARGS__)
 	#define zc_warn(...) \
@@ -54,15 +43,6 @@ enum zc_profile_flag {
 		zc_profile_inner(ZC_ERROR, __FILE__, __LINE__, fmt, ## args)
 	#define zc_profile(flag, fmt, args...) \
 		zc_profile_inner(flag, __FILE__, __LINE__, fmt, ## args)
-#elif defined _MSC_VER
-        #define zc_debug(...) \
-                zc_profile_inner(ZC_DEBUG, __FILE__, __LINE__, __VA_ARGS__)
-	#define zc_warn(...) \
-		zc_profile_inner(ZC_WARN, __FILE__, __LINE__, __VA_ARGS__)
-	#define zc_error(...) \
-		zc_profile_inner(ZC_ERROR, __FILE__, __LINE__, __VA_ARGS__)
-	#define zc_profile(flag, ...) \
-		zc_profile_inner(flag, __FILE__, __LINE__, __VA_ARGS__)
 #endif
 
 

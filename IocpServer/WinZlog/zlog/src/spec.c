@@ -3,59 +3,41 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * The zlog Library is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * The zlog Library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
+ * Licensed under the LGPL v2.1, see the file COPYING in base directory.
  */
-
+#include "win_compatible.h"
 #include "fmacros.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
-#ifndef _MSC_VER
 #include <sys/time.h>
-#endif
 #include <time.h>
 #include <errno.h>
 #include <sys/types.h>
-#ifndef _MSC_VER
 #include <unistd.h>
-#endif
 
 #include "conf.h"
 #include "spec.h"
 #include "level_list.h"
 #include "zc_defs.h"
 
-#ifdef _MSC_VER
-#define ZLOG_DEFAULT_TIME_FMT "%Y-%m-%d %H:%M:%S"
-#else
-#define ZLOG_DEFAULT_TIME_FMT "%F %T"
-#endif
+
+#define ZLOG_DEFAULT_TIME_FMT DEF_TIME_FMT
 #define	ZLOG_HEX_HEAD  \
 	"\n             0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F    0123456789ABCDEF"
 
 /*******************************************************************************/
 void zlog_spec_profile(zlog_spec_t * a_spec, int flag)
 {
-	return;
 	zc_assert(a_spec,);
-	zc_profile(flag, "----spec[%p][%.*s][%s][%s,%ld,%ld][%s]----",
+	zc_profile(flag, "----spec[%p][%.*s][%s|%d][%s,%ld,%ld,%s][%s]----",
 		a_spec,
 		a_spec->len, a_spec->str,
 		a_spec->time_fmt,
-		a_spec->print_fmt, (long)a_spec->max_width, (long)a_spec->min_width,
+		a_spec->time_cache_index,
+		a_spec->print_fmt, (long)a_spec->max_width, (long)a_spec->min_width, a_spec->left_fill_zeros ? "true" : "false",
 		a_spec->mdc_key);
 	return;
 }
@@ -63,72 +45,72 @@ void zlog_spec_profile(zlog_spec_t * a_spec, int flag)
 /*******************************************************************************/
 /* implementation of write function */
 
-#define zlog_spec_fetch_time  do {\
-	if (!a_thread->event->time_stamp.tv_sec) {  \
-		gettimeofday(&(a_thread->event->time_stamp), NULL);   \
-   \
-		if (a_thread->event->time_stamp.tv_sec != a_thread->event->last_sec) {   \
-			/* localtime_r is slow on linux, do it once per second */   \
-			/* thanks for nikuailema@gmail.com */   \
-			a_thread->event->last_sec = a_thread->event->time_stamp.tv_sec;   \
-			localtime_r(&(a_thread->event->time_stamp.tv_sec),   \
-				    &(a_thread->event->local_time));   \
-   \
-			/* strftime %D time fmt per second*/   \
-			strftime(a_thread->event->D_time_str,   \
-				sizeof(a_thread->event->D_time_str),  \
-				ZLOG_DEFAULT_TIME_FMT, &(a_thread->event->local_time) ); \
-   \
-			/* strftime %d() per second */   \
-			if (a_thread->event->last_time_fmt) {   \
-				a_thread->event->time_str_len = strftime(a_thread->event->time_str,   \
-				sizeof(a_thread->event->time_str),   \
-				a_thread->event->last_time_fmt, &(a_thread->event->local_time));   \
-			}   \
-		}   \
-	}   \
-} while(0) 
-
 static int zlog_spec_write_time(zlog_spec_t * a_spec, zlog_thread_t * a_thread, zlog_buf_t * a_buf)
 {
-	/* do fetch time every event once */
-	zlog_spec_fetch_time;
+	zlog_time_cache_t * a_cache = a_thread->event->time_caches + a_spec->time_cache_index;
+	time_t now_sec = a_thread->event->time_stamp.tv_sec;
+	struct tm *time_local = &(a_thread->event->time_local);
 
-	/* strftime %d() is slow too, do it when 
-	 * time_fmt changed(event go through another spec) */
-	if (a_thread->event->last_time_fmt != a_spec->time_fmt) {
-                /* The last_time_fmt memory can be free'd when zlog_reload deletes the formats */
-                /* disable this for now.                                                       */
-		//a_thread->event->last_time_fmt = a_spec->time_fmt;
-
-		a_thread->event->time_str_len = strftime(a_thread->event->time_str,
-			sizeof(a_thread->event->time_str),
-			a_spec->time_fmt, &(a_thread->event->local_time));
+	/* the event meet the 1st time_spec in his life cycle */
+	if (!now_sec) {
+		gettimeofday(&(a_thread->event->time_stamp), NULL);
+		now_sec = a_thread->event->time_stamp.tv_sec;
 	}
 
-	return zlog_buf_append(a_buf, a_thread->event->time_str, a_thread->event->time_str_len);
+	/* When this event's last cached time_local is not now */
+	if (a_thread->event->time_local_sec != now_sec) {
+		localtime_r(&(now_sec), time_local);
+		a_thread->event->time_local_sec = now_sec;
+	}
+
+	/* When this spec's last cache time string is not now */
+	if (a_cache->sec != now_sec) {
+		a_cache->len = strftime(a_cache->str, sizeof(a_cache->str), a_spec->time_fmt, time_local);
+		a_cache->sec = now_sec;
+	}
+
+	return zlog_buf_append(a_buf, a_cache->str, a_cache->len);
 }
 
+#if 0
 static int zlog_spec_write_time_D(zlog_spec_t * a_spec, zlog_thread_t * a_thread, zlog_buf_t * a_buf)
 {
-	/* do fetch time every event once */
-	zlog_spec_fetch_time;
+	if (!a_thread->event->time_stamp.tv_sec) {
+		gettimeofday(&(a_thread->event->time_stamp), NULL);
+	}
 
-	return zlog_buf_append(a_buf, a_thread->event->D_time_str,
-			 	sizeof(a_thread->event->D_time_str) - 1);
+	/*
+	 * It is modified when time slips one second.
+	 * So it is a strong cache, as Default time format is always %F %T.
+	 * That's why I said %D is faster than %d()
+	 */
+	if (a_thread->event->time_stamp.tv_sec != a_thread->event->time_last_D) {
+
+		a_thread->event->time_last_D = a_thread->event->time_stamp.tv_sec;
+		localtime_r(&(a_thread->event->time_stamp.tv_sec),
+			    &(a_thread->event->time_local));
+
+		strftime(a_thread->event->time_cache_D,
+			sizeof(a_thread->event->time_cache_D),
+			ZLOG_DEFAULT_TIME_FMT, &(a_thread->event->time_local) );
+	}
+	return zlog_buf_append(a_buf, a_thread->event->time_cache_D, sizeof(a_thread->event->time_cache_D) - 1);
 }
+#endif
 
 static int zlog_spec_write_ms(zlog_spec_t * a_spec, zlog_thread_t * a_thread, zlog_buf_t * a_buf)
 {
-	/* do fetch time every event once */
-	zlog_spec_fetch_time;
+	if (!a_thread->event->time_stamp.tv_sec) {
+		gettimeofday(&(a_thread->event->time_stamp), NULL);
+	}
 	return zlog_buf_printf_dec32(a_buf, (a_thread->event->time_stamp.tv_usec / 1000), 3);
 }
 
 static int zlog_spec_write_us(zlog_spec_t * a_spec, zlog_thread_t * a_thread, zlog_buf_t * a_buf)
 {
-	/* do fetch time every event once */
-	zlog_spec_fetch_time;
+	if (!a_thread->event->time_stamp.tv_sec) {
+		gettimeofday(&(a_thread->event->time_stamp), NULL);
+	}
 	return zlog_buf_printf_dec32(a_buf, a_thread->event->time_stamp.tv_usec, 6);
 }
 
@@ -231,7 +213,7 @@ static int zlog_spec_write_pid(zlog_spec_t * a_spec, zlog_thread_t * a_thread, z
 static int zlog_spec_write_tid_hex(zlog_spec_t * a_spec, zlog_thread_t * a_thread, zlog_buf_t * a_buf)
 {
 
-	/* don't need to get tid again, as tmap_new_thread fetch it already */
+	/* don't need to get tid again, as tmap_new_thread fetched it already */
 	/* and fork not change tid */
 	return zlog_buf_append(a_buf, a_thread->event->tid_hex_str, a_thread->event->tid_hex_str_len);
 }
@@ -239,10 +221,20 @@ static int zlog_spec_write_tid_hex(zlog_spec_t * a_spec, zlog_thread_t * a_threa
 static int zlog_spec_write_tid_long(zlog_spec_t * a_spec, zlog_thread_t * a_thread, zlog_buf_t * a_buf)
 {
 
-	/* don't need to get tid again, as tmap_new_thread fetch it already */
+	/* don't need to get tid again, as tmap_new_thread fetched it already */
 	/* and fork not change tid */
 	return zlog_buf_append(a_buf, a_thread->event->tid_str, a_thread->event->tid_str_len);
 }
+
+#if defined __linux__ || __APPLE__
+static int zlog_spec_write_ktid(zlog_spec_t * a_spec, zlog_thread_t * a_thread, zlog_buf_t * a_buf)
+{
+
+	/* don't need to get ktid again, as tmap_new_thread fetched it already */
+	/* and fork not change tid */
+	return zlog_buf_append(a_buf, a_thread->event->ktid_str, a_thread->event->ktid_str_len);
+}
+#endif
 
 static int zlog_spec_write_level_lowercase(zlog_spec_t * a_spec, zlog_thread_t * a_thread, zlog_buf_t * a_buf)
 {
@@ -287,7 +279,7 @@ static int zlog_spec_write_usrmsg(zlog_spec_t * a_spec, zlog_thread_t * a_thread
 		}
 
 		line_offset = 0;
-		byte_offset = 0;
+		//byte_offset = 0;
 
 		while (1) {
 			unsigned char c;
@@ -381,7 +373,7 @@ static int zlog_spec_gen_msg_reformat(zlog_spec_t * a_spec, zlog_thread_t * a_th
 
 	return zlog_buf_adjust_append(a_thread->msg_buf,
 		zlog_buf_str(a_thread->pre_msg_buf), zlog_buf_len(a_thread->pre_msg_buf),
-		a_spec->left_adjust, a_spec->min_width, a_spec->max_width);
+		a_spec->left_adjust, a_spec->left_fill_zeros, a_spec->min_width, a_spec->max_width);
 }
 
 /*******************************************************************************/
@@ -407,7 +399,7 @@ static int zlog_spec_gen_path_reformat(zlog_spec_t * a_spec, zlog_thread_t * a_t
 
 	return zlog_buf_adjust_append(a_thread->path_buf,
 		zlog_buf_str(a_thread->pre_path_buf), zlog_buf_len(a_thread->pre_path_buf),
-		a_spec->left_adjust, a_spec->min_width, a_spec->max_width);
+		a_spec->left_adjust, a_spec->left_fill_zeros, a_spec->min_width, a_spec->max_width);
 }
 
 /*******************************************************************************/
@@ -433,7 +425,7 @@ static int zlog_spec_gen_archive_path_reformat(zlog_spec_t * a_spec, zlog_thread
 
 	return zlog_buf_adjust_append(a_thread->archive_path_buf,
 		zlog_buf_str(a_thread->pre_path_buf), zlog_buf_len(a_thread->pre_path_buf),
-		a_spec->left_adjust, a_spec->min_width, a_spec->max_width);
+		a_spec->left_adjust, a_spec->left_fill_zeros, a_spec->min_width, a_spec->max_width);
 }
 
 /*******************************************************************************/
@@ -446,8 +438,11 @@ static int zlog_spec_parse_print_fmt(zlog_spec_t * a_spec)
 	p = a_spec->print_fmt;
 	if (*p == '-') {
 		a_spec->left_adjust = 1;
-		p++; 
+		p++;
 	} else {
+		if (*p == '0') {
+			a_spec->left_fill_zeros = 1;
+		}
 		a_spec->left_adjust = 0;
 	}
 
@@ -465,15 +460,15 @@ static int zlog_spec_parse_print_fmt(zlog_spec_t * a_spec)
 void zlog_spec_del(zlog_spec_t * a_spec)
 {
 	zc_assert(a_spec,);
-	free(a_spec);
 	zc_debug("zlog_spec_del[%p]", a_spec);
+    free(a_spec);
 }
 
 /* a spec may consist of
  * a const string: /home/bb
  * a string begin with %: %12.35d(%F %X,%l)
  */
-zlog_spec_t *zlog_spec_new(char *pattern_start, char **pattern_next)
+zlog_spec_t *zlog_spec_new(char *pattern_start, char **pattern_next, int *time_cache_count)
 {
 	char *p;
 	int nscan = 0;
@@ -493,9 +488,10 @@ zlog_spec_t *zlog_spec_new(char *pattern_start, char **pattern_next)
 
 	switch (*p) {
 	case '%':
-		/* a string begin with %: %12.35d(%F %X,%l) */
+		/* a string begin with %: %12.35d(%F %X) */
 
 		/* process width and precision char in %-12.35P */
+		nread = 0;
 		nscan = sscanf(p, "%%%[.0-9-]%n", a_spec->print_fmt, &nread);
 		if (nscan == 1) {
 			a_spec->gen_msg = zlog_spec_gen_msg_reformat;
@@ -525,8 +521,8 @@ zlog_spec_t *zlog_spec_new(char *pattern_start, char **pattern_next)
 				strcpy(a_spec->time_fmt, ZLOG_DEFAULT_TIME_FMT);
 				p += 3;
 			} else {
-				nscan =
-				    sscanf(p, "d(%[^)])%n", a_spec->time_fmt, &nread);
+				nread = 0;
+				nscan = sscanf(p, "d(%[^)])%n", a_spec->time_fmt, &nread);
 				if (nscan != 1) {
 					nread = 0;
 				}
@@ -537,13 +533,17 @@ zlog_spec_t *zlog_spec_new(char *pattern_start, char **pattern_next)
 				}
 			}
 
+			a_spec->time_cache_index = *time_cache_count;
+			(*time_cache_count)++;
+			a_spec->write_buf = zlog_spec_write_time;
+
 			*pattern_next = p;
 			a_spec->len = p - a_spec->str;
-			a_spec->write_buf = zlog_spec_write_time;
 			break;
 		}
 
 		if (*p == 'M') {
+			nread = 0;
 			nscan = sscanf(p, "M(%[^)])%n", a_spec->mdc_key, &nread);
 			if (nscan != 1) {
 				nread = 0;
@@ -585,7 +585,10 @@ zlog_spec_t *zlog_spec_new(char *pattern_start, char **pattern_next)
 			a_spec->write_buf = zlog_spec_write_category;
 			break;
 		case 'D':
-			a_spec->write_buf = zlog_spec_write_time_D;
+			strcpy(a_spec->time_fmt, ZLOG_DEFAULT_TIME_FMT);
+			a_spec->time_cache_index = *time_cache_count;
+			(*time_cache_count)++;
+			a_spec->write_buf = zlog_spec_write_time;
 			break;
 		case 'F':
 			a_spec->write_buf = zlog_spec_write_srcfile;
@@ -596,6 +599,11 @@ zlog_spec_t *zlog_spec_new(char *pattern_start, char **pattern_next)
 		case 'H':
 			a_spec->write_buf = zlog_spec_write_hostname;
 			break;
+#if defined __linux__ || __APPLE__
+		case 'k':
+			a_spec->write_buf = zlog_spec_write_ktid;
+			break;
+#endif
 		case 'L':
 			a_spec->write_buf = zlog_spec_write_srcline;
 			break;
