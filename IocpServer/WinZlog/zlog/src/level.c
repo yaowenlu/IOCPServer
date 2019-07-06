@@ -3,16 +3,28 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * Licensed under the LGPL v2.1, see the file COPYING in base directory.
+ * The zlog Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * The zlog Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
-#include "syslog.h"
+
 
 #include "zc_defs.h"
 #include "level.h"
+#include "syslog.h"
 
 void zlog_level_profile(zlog_level_t *a_level, int flag)
 {
@@ -31,8 +43,8 @@ void zlog_level_profile(zlog_level_t *a_level, int flag)
 void zlog_level_del(zlog_level_t *a_level)
 {
 	zc_assert(a_level,);
+	free(a_level);
 	zc_debug("zlog_level_del[%p]", a_level);
-    free(a_level);
 	return;
 }
 

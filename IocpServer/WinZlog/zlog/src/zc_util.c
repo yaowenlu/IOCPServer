@@ -3,17 +3,29 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * Licensed under the LGPL v2.1, see the file COPYING in base directory.
+ * The zlog Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * The zlog Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
-#include "win_compatible.h"
+
 #include <string.h>
-#include "syslog.h"
+//#include <syslog.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <errno.h>
 
 #include "zc_defs.h"
+#include "syslog.h"
 
 size_t zc_parse_byte_size(char *astring)
 {
@@ -85,13 +97,14 @@ int zc_str_replace_env(char *str, size_t str_size)
 	char env_value[MAXLEN_CFG_LINE + 1];
 	int str_len;
 	int env_value_len;
-	int nscan;
-	int nread;
 
 	str_len = strlen(str);
 	q = str;
 
 	do {
+		int nscan = 0;
+		int nread = 0;
+
 		p = strchr(q, '%');
 		if (!p) {
 			/* can't find more % */
@@ -101,7 +114,7 @@ int zc_str_replace_env(char *str, size_t str_size)
 		memset(fmt, 0x00, sizeof(fmt));
 		memset(env_key, 0x00, sizeof(env_key));
 		memset(env_value, 0x00, sizeof(env_value));
-		nread = 0;
+
 		nscan = sscanf(p + 1, "%[.0-9-]%n", fmt + 1, &nread);
 		if (nscan == 1) {
 			fmt[0] = '%';

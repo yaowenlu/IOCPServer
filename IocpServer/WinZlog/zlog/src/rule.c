@@ -3,15 +3,25 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * Licensed under the LGPL v2.1, see the file COPYING in base directory.
+ * The zlog Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * The zlog Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "win_compatible.h"
 #include "fmacros.h"
 
 #include <string.h>
 #include <ctype.h>
-#include "syslog.h"
+
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -31,15 +41,35 @@
 
 #include "zc_defs.h"
 
+#include "syslog.h"
+
+
 #ifdef _MSC_VER
-int stdwrite(int fd,char *data,int len) {
-	int numb = 0;
-	int status = WriteFile(fd,data,len,&numb,NULL);
-	if(status == 0) return(-1);
-	return(numb);
+int zlogopen(char *f,int m,int p) {
+	//HANDLE h = CreateFile(f,FILE_APPEND_DATA,
+	BOOL bsucc = CreateDirectoryA("d:/tmp/", NULL);
+	HANDLE h = CreateFileA(f,FILE_APPEND_DATA,
+			(FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE),
+			NULL, 
+			OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  return(h);
+}
+int zlogwrite(int fd,char *data,int len) {
+  int numb = 0;
+  int status;
+
+  status = WriteFile(fd,data,len,&numb,NULL);
+  if(status == 0) return(-1);
+  return(numb);
+}
+int zlogclose(int fd) {
+  if(CloseHandle(fd)) return(0);
+  return(-1);
 }
 #else
-#define stdwrite(f,s,l) write(f,s,l)
+#define zlogopen(f,m,p) open(f,m,p)
+#define zlogwrite(f,s,l) write(f,s,l)
+#define zlogclose(f) close(f)
 #endif
 
 void zlog_rule_profile(zlog_rule_t * a_rule, int flag)
@@ -50,7 +80,6 @@ void zlog_rule_profile(zlog_rule_t * a_rule, int flag)
 	zc_assert(a_rule,);
 	zc_profile(flag, "---rule:[%p][%s%c%d]-[%d,%d][%s,%p,%d:%ld*%d~%s][%d][%d][%s:%s:%p];[%p]---",
 		a_rule,
-
 		a_rule->category,
 		a_rule->compare_char,
 		a_rule->level,
@@ -87,50 +116,12 @@ void zlog_rule_profile(zlog_rule_t * a_rule, int flag)
 
 static int zlog_rule_output_static_file_single(zlog_rule_t * a_rule, zlog_thread_t * a_thread)
 {
-	struct stat stb;
-	int do_file_reload = 0;
-	int redo_inode_stat = 0;
-
 	if (zlog_format_gen_msg(a_rule->format, a_thread)) {
 		zc_error("zlog_format_gen_msg fail");
 		return -1;
 	}
 
-	/* check if the output file was changed by an external tool by comparing the inode to our saved off one */
-	if (stat(a_rule->file_path, &stb)) {
-		if (errno != ENOENT) {
-			zc_error("stat fail on [%s], errno[%d]", a_rule->file_path, errno);
-			return -1;
-		} else {
-			do_file_reload = 1;
-			redo_inode_stat = 1; /* we'll have to restat the newly created file to get the inode info */
-		}
-	} else {
-		do_file_reload = (stb.st_ino != a_rule->static_ino || stb.st_dev != a_rule->static_dev);
-	}
-
-	if (do_file_reload) {
-		close(a_rule->static_fd);
-		a_rule->static_fd = open(a_rule->file_path,
-			O_WRONLY | O_APPEND | O_CREAT | a_rule->file_open_flags,
-			a_rule->file_perms);
-		if (a_rule->static_fd < 0) {
-			zc_error("open file[%s] fail, errno[%d]", a_rule->file_path, errno);
-			return -1;
-		}
-
-		/* save off the new dev/inode info from the stat call we already did */
-		if (redo_inode_stat) {
-			if (stat(a_rule->file_path, &stb)) {
-				zc_error("stat fail on new file[%s], errno[%d]", a_rule->file_path, errno);
-				return -1;
-			}
-		}
-		a_rule->static_dev = stb.st_dev;
-		a_rule->static_ino = stb.st_ino;
-	}
-
-	if (write(a_rule->static_fd,
+	if (zlogwrite(a_rule->static_fd,
 			zlog_buf_str(a_thread->msg_buf),
 			zlog_buf_len(a_thread->msg_buf)) < 0) {
 		zc_error("write fail, errno[%d]", errno);
@@ -172,35 +163,23 @@ static int zlog_rule_output_static_file_rotate(zlog_rule_t * a_rule, zlog_thread
 {
 	size_t len;
 	struct zlog_stat info;
-	int fd;
 
 	if (zlog_format_gen_msg(a_rule->format, a_thread)) {
 		zc_error("zlog_format_gen_msg fail");
 		return -1;
 	}
 
-	fd = open(a_rule->file_path, 
-		a_rule->file_open_flags | O_WRONLY | O_APPEND | O_CREAT, a_rule->file_perms);
-	if (fd < 0) {
-		zc_error("open file[%s] fail, errno[%d]", a_rule->file_path, errno);
-		return -1;
-	}
-
 	len = zlog_buf_len(a_thread->msg_buf);
-	if (write(fd, zlog_buf_str(a_thread->msg_buf), len) < 0) {
+	if (zlogwrite(a_rule->static_fd, zlog_buf_str(a_thread->msg_buf), len) < 0) {
 		zc_error("write fail, errno[%d]", errno);
-		close(fd);
 		return -1;
 	}
 
 	if (a_rule->fsync_period && ++a_rule->fsync_count >= a_rule->fsync_period) {
 		a_rule->fsync_count = 0;
-		if (fsync(fd)) zc_error("fsync[%d] fail, errno[%d]", fd, errno);
-	}
-
-	if (close(fd) < 0) {
-		zc_error("close fail, maybe cause by write, errno[%d]", errno);
-		return -1;
+		if (fsync(a_rule->static_fd)) {
+			zc_error("fsync[%d] fail, errno[%d]", a_rule->static_fd, errno);
+		}
 	}
 
 	if (len > a_rule->archive_max_size) {
@@ -220,7 +199,9 @@ static int zlog_rule_output_static_file_rotate(zlog_rule_t * a_rule, zlog_thread
 	if (zlog_rotater_rotate(zlog_env_conf->rotater, 
 		a_rule->file_path, len,
 		zlog_rule_gen_archive_path(a_rule, a_thread),
-		a_rule->archive_max_size, a_rule->archive_max_count)
+		a_rule->archive_max_size, a_rule->archive_max_count,
+		&(a_rule->static_fd), 
+		a_rule->file_open_flags | O_WRONLY | O_APPEND | O_CREAT, a_rule->file_perms)
 		) {
 		zc_error("zlog_rotater_rotate fail");
 		return -1;
@@ -260,16 +241,16 @@ static int zlog_rule_output_dynamic_file_single(zlog_rule_t * a_rule, zlog_threa
 		return -1;
 	}
 
-	fd = open(zlog_buf_str(a_thread->path_buf),
+	fd = zlogopen(zlog_buf_str(a_thread->path_buf),
 		a_rule->file_open_flags | O_WRONLY | O_APPEND | O_CREAT, a_rule->file_perms);
 	if (fd < 0) {
 		zc_error("open file[%s] fail, errno[%d]", zlog_buf_str(a_thread->path_buf), errno);
 		return -1;
 	}
 
-	if (write(fd, zlog_buf_str(a_thread->msg_buf), zlog_buf_len(a_thread->msg_buf)) < 0) {
+	if (zlogwrite(fd, zlog_buf_str(a_thread->msg_buf), zlog_buf_len(a_thread->msg_buf)) < 0) {
 		zc_error("write fail, errno[%d]", errno);
-		close(fd);
+		zlogclose(fd);
 		return -1;
 	}
 
@@ -278,7 +259,7 @@ static int zlog_rule_output_dynamic_file_single(zlog_rule_t * a_rule, zlog_threa
 		if (fsync(fd)) zc_error("fsync[%d] fail, errno[%d]", fd, errno);
 	}
 
-	if (close(fd) < 0) {
+	if (zlogclose(fd) < 0) {
 		zc_error("close fail, maybe cause by write, errno[%d]", errno);
 		return -1;
 	}
@@ -301,16 +282,16 @@ static int zlog_rule_output_dynamic_file_rotate(zlog_rule_t * a_rule, zlog_threa
 	}
 
 	path = zlog_buf_str(a_thread->path_buf);
-	fd = open(path, a_rule->file_open_flags | O_WRONLY | O_APPEND | O_CREAT, a_rule->file_perms);
+	fd = zlogopen(path, a_rule->file_open_flags | O_WRONLY | O_APPEND | O_CREAT, a_rule->file_perms);
 	if (fd < 0) {
 		zc_error("open file[%s] fail, errno[%d]", zlog_buf_str(a_thread->path_buf), errno);
 		return -1;
 	}
 
 	len = zlog_buf_len(a_thread->msg_buf);
-	if (write(fd, zlog_buf_str(a_thread->msg_buf), len) < 0) {
+	if (zlogwrite(fd, zlog_buf_str(a_thread->msg_buf), len) < 0) {
 		zc_error("write fail, errno[%d]", errno);
-		close(fd);
+		zlogclose(fd);
 		return -1;
 	}
 
@@ -319,7 +300,7 @@ static int zlog_rule_output_dynamic_file_rotate(zlog_rule_t * a_rule, zlog_threa
 		if (fsync(fd)) zc_error("fsync[%d] fail, errno[%d]", fd, errno);
 	}
 
-	if (close(fd) < 0) {
+	if (zlogclose(fd) < 0) {
 		zc_error("write fail, maybe cause by write, errno[%d]", errno);
 		return -1;
 	}
@@ -341,7 +322,8 @@ static int zlog_rule_output_dynamic_file_rotate(zlog_rule_t * a_rule, zlog_threa
 	if (zlog_rotater_rotate(zlog_env_conf->rotater, 
 		path, len,
 		zlog_rule_gen_archive_path(a_rule, a_thread),
-		a_rule->archive_max_size, a_rule->archive_max_count)
+		a_rule->archive_max_size, a_rule->archive_max_count,
+		NULL, 0, 0)
 		) {
 		zc_error("zlog_rotater_rotate fail");
 		return -1;
@@ -357,7 +339,7 @@ static int zlog_rule_output_pipe(zlog_rule_t * a_rule, zlog_thread_t * a_thread)
 		return -1;
 	}
 
-	if (write(a_rule->pipe_fd,
+	if (zlogwrite(a_rule->pipe_fd,
 			zlog_buf_str(a_thread->msg_buf),
 			zlog_buf_len(a_thread->msg_buf)) < 0) {
 		zc_error("write fail, errno[%d]", errno);
@@ -447,16 +429,27 @@ static int zlog_rule_output_dynamic_record(zlog_rule_t * a_rule, zlog_thread_t *
 static int zlog_rule_output_stdout(zlog_rule_t * a_rule,
 				   zlog_thread_t * a_thread)
 {
-
+	int iRet;
+#if _MSC_VER
+//long lStdOut = _fileno(stdout);
+HANDLE lStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+#else
+long lStdOut = STDOUT_FILENO;
+#endif
 	if (zlog_format_gen_msg(a_rule->format, a_thread)) {
 		zc_error("zlog_format_gen_msg fail");
 		return -1;
 	}
-
-	if (stdwrite(STDOUT_FILENO,
-		zlog_buf_str(a_thread->msg_buf), zlog_buf_len(a_thread->msg_buf)) < 0) {
-		zc_error("write fail, errno[%d]", errno);
-		return -1;
+// 	if (zlogwrite(lStdOut,
+// 		zlog_buf_str(a_thread->msg_buf), zlog_buf_len(a_thread->msg_buf)) < 0) {
+// 		zc_error("write fail, errno[%d]", errno);
+// 		return -1;
+// 	}
+	iRet = zlogwrite(lStdOut,
+		zlog_buf_str(a_thread->msg_buf), zlog_buf_len(a_thread->msg_buf));
+	if ( iRet< 0) {
+			zc_error("write fail[GLE=%d], errno[%d]",  GetLastError(), errno);
+			return -1;
 	}
 
 	return 0;
@@ -465,13 +458,19 @@ static int zlog_rule_output_stdout(zlog_rule_t * a_rule,
 static int zlog_rule_output_stderr(zlog_rule_t * a_rule,
 				   zlog_thread_t * a_thread)
 {
+#if _MSC_VER
+//long lStdErr = _fileno(stderr);
+HANDLE lStdErr = GetStdHandle(STD_ERROR_HANDLE);
+#else
+long lStdErr = STDERR_FILENO;
+#endif
 
 	if (zlog_format_gen_msg(a_rule->format, a_thread)) {
 		zc_error("zlog_format_gen_msg fail");
 		return -1;
 	}
 
-	if (stdwrite(STDERR_FILENO,
+	if (zlogwrite(lStdErr,
 		zlog_buf_str(a_thread->msg_buf), zlog_buf_len(a_thread->msg_buf)) < 0) {
 		zc_error("write fail, errno[%d]", errno);
 		return -1;
@@ -487,33 +486,31 @@ static int syslog_facility_atoi(char *facility)
 	 */
 	zc_assert(facility, -187);
 
-	if (STRICMP(facility, ==, "LOG_LOCAL0")) return LOG_LOCAL0;
-	if (STRICMP(facility, ==, "LOG_LOCAL1")) return LOG_LOCAL1;
-	if (STRICMP(facility, ==, "LOG_LOCAL2")) return LOG_LOCAL2;
-	if (STRICMP(facility, ==, "LOG_LOCAL3")) return LOG_LOCAL3;
-	if (STRICMP(facility, ==, "LOG_LOCAL4")) return LOG_LOCAL4;
-	if (STRICMP(facility, ==, "LOG_LOCAL5")) return LOG_LOCAL5;
-	if (STRICMP(facility, ==, "LOG_LOCAL6")) return LOG_LOCAL6;
-	if (STRICMP(facility, ==, "LOG_LOCAL7")) return LOG_LOCAL7;
-	if (STRICMP(facility, ==, "LOG_USER")) return LOG_USER;
-	if (STRICMP(facility, ==, "LOG_AUTHPRIV")) return LOG_AUTHPRIV;
-	if (STRICMP(facility, ==, "LOG_CRON")) return LOG_CRON;
-	if (STRICMP(facility, ==, "LOG_DAEMON")) return LOG_DAEMON;
-	if (STRICMP(facility, ==, "LOG_FTP")) return LOG_FTP;
-	if (STRICMP(facility, ==, "LOG_KERN")) return LOG_KERN;
-	if (STRICMP(facility, ==, "LOG_LPR")) return LOG_LPR;
-	if (STRICMP(facility, ==, "LOG_MAIL")) return LOG_MAIL;
-	if (STRICMP(facility, ==, "LOG_NEWS")) return LOG_NEWS;
-	if (STRICMP(facility, ==, "LOG_SYSLOG")) return LOG_SYSLOG;
-		return LOG_AUTHPRIV;
+	if (STRICMP(facility, ==, "LOG_LOCAL0"))
+		return LOG_LOCAL0;
+	if (STRICMP(facility, ==, "LOG_LOCAL1"))
+		return LOG_LOCAL1;
+	if (STRICMP(facility, ==, "LOG_LOCAL2"))
+		return LOG_LOCAL2;
+	if (STRICMP(facility, ==, "LOG_LOCAL3"))
+		return LOG_LOCAL3;
+	if (STRICMP(facility, ==, "LOG_LOCAL4"))
+		return LOG_LOCAL4;
+	if (STRICMP(facility, ==, "LOG_LOCAL5"))
+		return LOG_LOCAL5;
+	if (STRICMP(facility, ==, "LOG_LOCAL6"))
+		return LOG_LOCAL6;
+	if (STRICMP(facility, ==, "LOG_LOCAL7"))
+		return LOG_LOCAL7;
+	if (STRICMP(facility, ==, "LOG_USER"))
+		return LOG_USER;
 
 	zc_error("wrong syslog facility[%s], must in LOG_LOCAL[0-7] or LOG_USER", facility);
 	return -187;
 }
 
 static int zlog_rule_parse_path(char *path_start, /* start with a " */
-		char *path_str, size_t path_size, zc_arraylist_t **path_specs,
-		int *time_cache_count)
+		char *path_str, size_t path_size, zc_arraylist_t **path_specs)
 {
 	char *p, *q;
 	size_t len;
@@ -552,7 +549,7 @@ static int zlog_rule_parse_path(char *path_start, /* start with a " */
 	}
 
 	for (p = path_str; *p != '\0'; p = q) {
-		a_spec = zlog_spec_new(p, &q, time_cache_count);
+		a_spec = zlog_spec_new(p, &q);
 		if (!a_spec) {
 			zc_error("zlog_spec_new fail");
 			goto err;
@@ -577,8 +574,7 @@ zlog_rule_t *zlog_rule_new(char *line,
 		zlog_format_t * default_format,
 		zc_arraylist_t * formats,
 		unsigned int file_perms,
-		size_t fsync_period,
-		int * time_cache_count)
+		size_t fsync_period)
 {
 	int rc = 0;
 	int nscan = 0;
@@ -639,10 +635,12 @@ zlog_rule_t *zlog_rule_new(char *line,
 		goto err;
 	}
 
+
 	/* check and set category */
 	for (p = category; *p != '\0'; p++) {
-		if ((!isalnum(*p)) && (*p != '_') && (*p != '-') && (*p != '*') && (*p != '!')) {
-			zc_error("category name[%s] character is not in [a-Z][0-9][_!*-]", category);
+		if ((!isalnum(*p)) && (*p != '_') && (*p != '*') && (*p != '!')) {
+			zc_error("category name[%s] character is not in [a-Z][0-9][_!*]",
+				 category);
 			goto err;
 		}
 	}
@@ -767,13 +765,15 @@ zlog_rule_t *zlog_rule_new(char *line,
 		a_rule->fsync_period = 0;
 
 		p = file_path + 1;
-		//a_rule->file_open_flags = O_SYNC;
+#ifndef _MSC_VER
+		a_rule->file_open_flags = O_SYNC;
+#endif
 		/* fall through */
 	case '"' :
 		if (!p) p = file_path;
 
 		rc = zlog_rule_parse_path(p, a_rule->file_path, sizeof(a_rule->file_path),
-				&(a_rule->dynamic_specs), time_cache_count);
+				&(a_rule->dynamic_specs));
 		if (rc) {
 			zc_error("zlog_rule_parse_path fail");
 			goto err;
@@ -781,23 +781,26 @@ zlog_rule_t *zlog_rule_new(char *line,
 
 		if (file_limit) {
 			memset(archive_max_size, 0x00, sizeof(archive_max_size));
-			nscan = sscanf(file_limit, " %[0-9MmKkBb] * %d ~",
+			nscan = sscanf(file_limit, " %s * %d ~",
 					archive_max_size, &(a_rule->archive_max_count));
 			if (nscan) {
 				a_rule->archive_max_size = zc_parse_byte_size(archive_max_size);
 			}
+
 			p = strchr(file_limit, '"');
 			if (p) { /* archive file path exist */
-				rc = zlog_rule_parse_path(p,
-					a_rule->archive_path, sizeof(a_rule->file_path),
-					&(a_rule->archive_specs), time_cache_count);
+				rc = zlog_rule_parse_path(p, a_rule->archive_path, sizeof(a_rule->file_path),
+						&(a_rule->archive_specs));
 				if (rc) {
 					zc_error("zlog_rule_parse_path fail");
 					goto err;
 				}
 
 				p = strchr(a_rule->archive_path, '#');
-				if ( (p == NULL) || ((strchr(p, 'r') == NULL) && (strchr(p, 's') == NULL))) {
+				if ( (p == NULL) && (
+						(strchr(p, 'r') == NULL) || (strchr(p, 's') == NULL)
+					)
+				   ) {
 					zc_error("archive_path must contain #r or #s");
 					goto err;
 				}
@@ -812,8 +815,6 @@ zlog_rule_t *zlog_rule_new(char *line,
 				a_rule->output = zlog_rule_output_dynamic_file_rotate;
 			}
 		} else {
-			struct stat stb;
-
 			if (a_rule->archive_max_size <= 0) {
 				a_rule->output = zlog_rule_output_static_file_single;
 			} else {
@@ -821,29 +822,16 @@ zlog_rule_t *zlog_rule_new(char *line,
 				a_rule->output = zlog_rule_output_static_file_rotate;
 			}
 
-			a_rule->static_fd = open(a_rule->file_path,
+			a_rule->static_fd = zlogopen(a_rule->file_path,
 				O_WRONLY | O_APPEND | O_CREAT | a_rule->file_open_flags,
 				a_rule->file_perms);
 			if (a_rule->static_fd < 0) {
 				zc_error("open file[%s] fail, errno[%d]", a_rule->file_path, errno);
 				goto err;
 			}
-
-			/* save off the inode information for checking for a changed file later on */
-			if (fstat(a_rule->static_fd, &stb)) {
-				zc_error("stat [%s] fail, errno[%d], failing to open static_fd", a_rule->file_path, errno);
-				goto err;
-			}
-
-			if (a_rule->archive_max_size > 0) {
-				close(a_rule->static_fd);
-				a_rule->static_fd = -1;
-			}
-
-			a_rule->static_dev = stb.st_dev;
-			a_rule->static_ino = stb.st_ino;
 		}
 		break;
+#ifndef _MSC_VER
 	case '|' :
 		a_rule->pipe_fp = popen(output + 1, "w");
 		if (!a_rule->pipe_fp) {
@@ -857,6 +845,7 @@ zlog_rule_t *zlog_rule_new(char *line,
 		}
 		a_rule->output = zlog_rule_output_pipe;
 		break;
+#endif
 	case '>' :
 		if (STRNCMP(file_path + 1, ==, "syslog", 6)) {
 			a_rule->syslog_facility = syslog_facility_atoi(file_limit);
@@ -878,8 +867,9 @@ zlog_rule_t *zlog_rule_new(char *line,
 		break;
 	case '$' :
 		sscanf(file_path + 1, "%s", a_rule->record_name);
+
 			
-		if (file_limit) {  /* record path exists */
+		if (*file_limit != '\0') {  /* record path exists */
 			p = strchr(file_limit, '"');
 			if (!p) {
 				zc_error("record_path not start with \", [%s]", file_limit);
@@ -921,7 +911,7 @@ zlog_rule_t *zlog_rule_new(char *line,
 				goto err;
 			}
 			for (p = a_rule->record_path; *p != '\0'; p = q) {
-				a_spec = zlog_spec_new(p, &q, time_cache_count);
+				a_spec = zlog_spec_new(p, &q);
 				if (!a_spec) {
 					zc_error("zlog_spec_new fail");
 					goto err;
@@ -942,6 +932,7 @@ zlog_rule_t *zlog_rule_new(char *line,
 		goto err;
 	}
 
+	//zlog_rule_profile(a_rule, ZC_DEBUG);
 	return a_rule;
 err:
 	zlog_rule_del(a_rule);
@@ -956,21 +947,23 @@ void zlog_rule_del(zlog_rule_t * a_rule)
 		a_rule->dynamic_specs = NULL;
 	}
 	if (a_rule->static_fd) {
-		if (close(a_rule->static_fd)) {
+		if (zlogclose(a_rule->static_fd)) {
 			zc_error("close fail, maybe cause by write, errno[%d]", errno);
 		}
 	}
+#ifndef _MSC_VER
 	if (a_rule->pipe_fp) {
 		if (pclose(a_rule->pipe_fp) == -1) {
 			zc_error("pclose fail, errno[%d]", errno);
 		}
 	}
+#endif
 	if (a_rule->archive_specs) {
-		zc_arraylist_del(a_rule->archive_specs);
-		a_rule->archive_specs = NULL;
+		zc_arraylist_del(a_rule->dynamic_specs);
+		a_rule->dynamic_specs = NULL;
 	}
+	free(a_rule);
 	zc_debug("zlog_rule_del[%p]", a_rule);
-    free(a_rule);
 	return;
 }
 

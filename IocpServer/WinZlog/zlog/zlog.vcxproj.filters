@@ -46,6 +46,9 @@
     <ClInclude Include="src\level.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="src\level_list.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
     <ClInclude Include="src\mdc.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -53,6 +56,9 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\record_table.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\release.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\rotater.h">
@@ -68,6 +74,9 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\thread.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\thread_list.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\zc_arraylist.h">
@@ -89,15 +98,6 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\zlog.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="src\version.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="src\win_compatible.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="src\level_list.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
@@ -135,6 +135,9 @@
     <ClCompile Include="src\record_table.c">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="src\release.c">
+      <Filter>源文件</Filter>
+    </ClCompile>
     <ClCompile Include="src\rotater.c">
       <Filter>源文件</Filter>
     </ClCompile>
@@ -145,6 +148,12 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="src\thread.c">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\thread_list.c">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\win_compat.c">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="src\zc_arraylist.c">
@@ -163,9 +172,6 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="src\syslog-client.c">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="src\win_compat.c">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

@@ -3,7 +3,18 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * Licensed under the LGPL v2.1, see the file COPYING in base directory.
+ * The zlog Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * The zlog Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -20,6 +31,8 @@
 
 void zlog_format_profile(zlog_format_t * a_format, int flag)
 {
+	int i;
+	zlog_spec_t *a_spec;
 
 	zc_assert(a_format,);
 	zc_profile(flag, "---format[%p][%s = %s(%p)]---",
@@ -28,13 +41,9 @@ void zlog_format_profile(zlog_format_t * a_format, int flag)
 		a_format->pattern,
 		a_format->pattern_specs);
 
-#if 0
-	int i;
-	zlog_spec_t *a_spec;
 	zc_arraylist_foreach(a_format->pattern_specs, i, a_spec) {
 		zlog_spec_profile(a_spec, flag);
 	}
-#endif
 
 	return;
 }
@@ -46,12 +55,12 @@ void zlog_format_del(zlog_format_t * a_format)
 	if (a_format->pattern_specs) {
 		zc_arraylist_del(a_format->pattern_specs);
 	}
+	free(a_format);
 	zc_debug("zlog_format_del[%p]", a_format);
-    free(a_format);
 	return;
 }
 
-zlog_format_t *zlog_format_new(char *line, int * time_cache_count)
+zlog_format_t *zlog_format_new(char *line)
 {
 	int nscan = 0;
 	zlog_format_t *a_format = NULL;
@@ -75,7 +84,6 @@ zlog_format_t *zlog_format_new(char *line, int * time_cache_count)
 	 * pattern      %d(%F %X.%l) %-6V (%c:%F:%L) - %m%n
 	 */
 	memset(a_format->name, 0x00, sizeof(a_format->name));
-	nread = 0;
 	nscan = sscanf(line, " %[^= \t] = %n", a_format->name, &nread);
 	if (nscan != 1) {
 		zc_error("format[%s], syntax wrong", line);
@@ -121,7 +129,7 @@ zlog_format_t *zlog_format_new(char *line, int * time_cache_count)
 	}
 
 	for (p = a_format->pattern; *p != '\0'; p = q) {
-		a_spec = zlog_spec_new(p, &q, time_cache_count);
+		a_spec = zlog_spec_new(p, &q);
 		if (!a_spec) {
 			zc_error("zlog_spec_new fail");
 			goto err;
@@ -134,7 +142,7 @@ zlog_format_t *zlog_format_new(char *line, int * time_cache_count)
 		}
 	}
 
-	zlog_format_profile(a_format, ZC_DEBUG);
+	//zlog_format_profile(a_format, ZC_DEBUG);
 	return a_format;
 err:
 	zlog_format_del(a_format);

@@ -3,7 +3,18 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * Licensed under the LGPL v2.1, see the file COPYING in base directory.
+ * The zlog Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * The zlog Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
 #include "errno.h"
 #include "zc_defs.h"
@@ -19,8 +30,8 @@ void zlog_record_profile(zlog_record_t *a_record, int flag)
 void zlog_record_del(zlog_record_t *a_record)
 {
 	zc_assert(a_record,);
+	free(a_record);
 	zc_debug("zlog_record_del[%p]", a_record);
-    free(a_record);
 	return;
 }
 

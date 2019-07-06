@@ -140,7 +140,6 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -164,7 +163,7 @@ copy $(OutDir)$(TargetName)$(TargetExt) $(SolutionDir)\bin</Command>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -173,8 +172,6 @@ copy $(OutDir)$(TargetName)$(TargetExt) $(SolutionDir)\bin</Command>
       <OptimizeReferences>true</OptimizeReferences>
       <ModuleDefinitionFile>zlog.def</ModuleDefinitionFile>
       <AdditionalDependencies>pthreadVC2.lib;unixem.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <IgnoreSpecificDefaultLibraries>
-      </IgnoreSpecificDefaultLibraries>
     </Link>
     <PostBuildEvent>
       <Command>copy $(OutDir)$(TargetName)$(TargetExt) $(SolutionDir)\..\Release\bin\x64
@@ -200,13 +197,13 @@ copy $(OutDir)$(TargetName)$(TargetExt) $(SolutionDir)\bin\x64</Command>
     <ClInclude Include="src\mdc.h" />
     <ClInclude Include="src\record.h" />
     <ClInclude Include="src\record_table.h" />
+    <ClInclude Include="src\release.h" />
     <ClInclude Include="src\rotater.h" />
     <ClInclude Include="src\rule.h" />
     <ClInclude Include="src\spec.h" />
     <ClInclude Include="src\syslog.h" />
     <ClInclude Include="src\thread.h" />
-    <ClInclude Include="src\version.h" />
-    <ClInclude Include="src\win_compatible.h" />
+    <ClInclude Include="src\thread_list.h" />
     <ClInclude Include="src\zc_arraylist.h" />
     <ClInclude Include="src\zc_defs.h" />
     <ClInclude Include="src\zc_hashtable.h" />
@@ -227,11 +224,13 @@ copy $(OutDir)$(TargetName)$(TargetExt) $(SolutionDir)\bin\x64</Command>
     <ClCompile Include="src\mdc.c" />
     <ClCompile Include="src\record.c" />
     <ClCompile Include="src\record_table.c" />
+    <ClCompile Include="src\release.c" />
     <ClCompile Include="src\rotater.c" />
     <ClCompile Include="src\rule.c" />
     <ClCompile Include="src\spec.c" />
     <ClCompile Include="src\syslog-client.c" />
     <ClCompile Include="src\thread.c" />
+    <ClCompile Include="src\thread_list.c" />
     <ClCompile Include="src\win_compat.c" />
     <ClCompile Include="src\zc_arraylist.c" />
     <ClCompile Include="src\zc_hashtable.c" />

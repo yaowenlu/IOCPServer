@@ -3,7 +3,18 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * Licensed under the LGPL v2.1, see the file COPYING in base directory.
+ * The zlog Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * The zlog Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifndef __zlog_buf_h
@@ -40,7 +51,7 @@ void zlog_buf_profile(zlog_buf_t * a_buf, int flag);
 int zlog_buf_vprintf(zlog_buf_t * a_buf, const char *format, va_list args);
 int zlog_buf_append(zlog_buf_t * a_buf, const char *str, size_t str_len);
 int zlog_buf_adjust_append(zlog_buf_t * a_buf, const char *str, size_t str_len,
-			int left_adjust, int zero_pad, size_t in_width, size_t out_width);
+			int left_adjust, size_t in_width, size_t out_width);
 int zlog_buf_printf_dec32(zlog_buf_t * a_buf, uint32_t ui32, int width);
 int zlog_buf_printf_dec64(zlog_buf_t * a_buf, uint64_t ui64, int width);
 int zlog_buf_printf_hex(zlog_buf_t * a_buf, uint32_t ui32, int width);

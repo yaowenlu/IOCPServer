@@ -3,10 +3,20 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * Licensed under the LGPL v2.1, see the file COPYING in base directory.
+ * The zlog Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * The zlog Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "win_compatible.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
@@ -21,13 +31,13 @@
  * the return value of vsnprintf(3) is a number tell how many character should
  * be output.  vsnprintf in glibc 2.1 conforms to C99 , but glibc 2.0 doesn't.
  * see manpage of vsnprintf(3) on you platform for more detail.
-
+ 
  * So, what should you do if you want to using zlog on the platform that doesn't
  * conform C99? My Answer is, crack zlog with a portable C99-vsnprintf, like this
  * http://sourceforge.net/projects/ctrio/
  * http://www.jhweiss.de/software/snprintf.html
  * If you can see this note, you can fix it yourself? Aren't you? ^_^
-
+ 
  * Oh, I put the snprintf in C99 standard here,
  * vsnprintf is the same on return value.
 
@@ -80,8 +90,8 @@ void zlog_buf_del(zlog_buf_t * a_buf)
 {
 	//zc_assert(a_buf,);
 	if (a_buf->start) free(a_buf->start);
+	free(a_buf);
 	zc_debug("zlog_buf_del[%p]", a_buf);
-    free(a_buf);
 	return;
 }
 
@@ -193,10 +203,13 @@ static int zlog_buf_resize(zlog_buf_t * a_buf, size_t increment)
 		a_buf->tail = NULL;
 		a_buf->end = NULL;
 		a_buf->end_plus_1 = NULL;
+		/* set size_real = -1, so other func know buf is unavailiable */
+		a_buf->size_real = -1;
 		return -1;
 	} else {
 		a_buf->start = p;
 		a_buf->tail = p + len;
+		//memset(a_buf->tail, 0x00, new_size - len);
 		a_buf->size_real = new_size;
 		a_buf->end_plus_1 = a_buf->start + new_size;
 		a_buf->end = a_buf->end_plus_1 - 1;
@@ -211,12 +224,16 @@ int zlog_buf_vprintf(zlog_buf_t * a_buf, const char *format, va_list args)
 	size_t size_left;
 	int nwrite;
 
-	if (!a_buf->start) {
+	if (a_buf->size_real < 0) {
 		zc_error("pre-use of zlog_buf_resize fail, so can't convert");
 		return -1;
 	}
 
+#ifdef _MSC_VER
+	ap = args;
+#else
 	va_copy(ap, args);
+#endif
 	size_left = a_buf->end_plus_1 - a_buf->tail;
 	nwrite = vsnprintf(a_buf->tail, size_left, format, ap);
 	if (nwrite >= 0 && nwrite < size_left) {
@@ -233,8 +250,12 @@ int zlog_buf_vprintf(zlog_buf_t * a_buf, const char *format, va_list args)
 		rc = zlog_buf_resize(a_buf, nwrite - size_left + 1);
 		if (rc > 0) {
 			zc_error("conf limit to %ld, can't extend, so truncate", a_buf->size_max);
-			va_copy(ap, args);
-			size_left = a_buf->end_plus_1 - a_buf->tail;
+#ifdef _MSC_VER
+ 	                ap = args;
+#else
+	                va_copy(ap, args);
+#endif
+			size_left = a_buf->end_plus_1 - a_buf->start;
 			vsnprintf(a_buf->tail, size_left, format, ap);
 			a_buf->tail += size_left - 1;
 			//*(a_buf->tail) = '\0';
@@ -246,7 +267,11 @@ int zlog_buf_vprintf(zlog_buf_t * a_buf, const char *format, va_list args)
 		} else {
 			//zc_debug("zlog_buf_resize succ, to[%ld]", a_buf->size_real);
 
-			va_copy(ap, args);
+#ifdef _MSC_VER
+	                ap = args;
+#else
+	                va_copy(ap, args);
+#endif
 			size_left = a_buf->end_plus_1 - a_buf->tail;
 			nwrite = vsnprintf(a_buf->tail, size_left, format, ap);
 			if (nwrite < 0) {
@@ -273,7 +298,7 @@ int zlog_buf_printf_dec32(zlog_buf_t * a_buf, uint32_t ui32, int width)
 	unsigned char tmp[ZLOG_INT32_LEN + 1];
 	size_t num_len, zero_len, out_len;
 
-	if (!a_buf->start) {
+	if (a_buf->size_real < 0) {
 		zc_error("pre-use of zlog_buf_resize fail, so can't convert");
 		return -1;
 	}
@@ -309,7 +334,7 @@ int zlog_buf_printf_dec32(zlog_buf_t * a_buf, uint32_t ui32, int width)
 				/* zero_len not changed */
 				num_len = len_left - zero_len;
 			}
-			if (zero_len) memset(a_buf->tail, '0', zero_len);
+			memset(a_buf->tail, '0', zero_len);
 			memcpy(a_buf->tail + zero_len, p, num_len);
 			a_buf->tail += len_left;
 			//*(a_buf->tail) = '\0';
@@ -324,7 +349,7 @@ int zlog_buf_printf_dec32(zlog_buf_t * a_buf, uint32_t ui32, int width)
 		}
 	}
 
-	if (zero_len) memset(a_buf->tail, '0', zero_len);
+	memset(a_buf->tail, '0', zero_len);
 	memcpy(a_buf->tail + zero_len, p, num_len);
 	a_buf->tail = q;
 	//*(a_buf->tail) = '\0';
@@ -339,7 +364,7 @@ int zlog_buf_printf_dec64(zlog_buf_t * a_buf, uint64_t ui64, int width)
 	size_t num_len, zero_len, out_len;
 	uint32_t ui32;
 
-	if (!a_buf->start) {
+	if (a_buf->size_real < 0) {
 		zc_error("pre-use of zlog_buf_resize fail, so can't convert");
 		return -1;
 	}
@@ -400,7 +425,7 @@ int zlog_buf_printf_dec64(zlog_buf_t * a_buf, uint64_t ui64, int width)
 				/* zero_len not changed */
 				num_len = len_left - zero_len;
 			}
-			if (zero_len) memset(a_buf->tail, '0', zero_len);
+			memset(a_buf->tail, '0', zero_len);
 			memcpy(a_buf->tail + zero_len, p, num_len);
 			a_buf->tail += len_left;
 			//*(a_buf->tail) = '\0';
@@ -415,7 +440,7 @@ int zlog_buf_printf_dec64(zlog_buf_t * a_buf, uint64_t ui64, int width)
 		}
 	}
 
-	if (zero_len) memset(a_buf->tail, '0', zero_len);
+	memset(a_buf->tail, '0', zero_len);
 	memcpy(a_buf->tail + zero_len, p, num_len);
 	a_buf->tail = q;
 	//*(a_buf->tail) = '\0';
@@ -431,7 +456,7 @@ int zlog_buf_printf_hex(zlog_buf_t * a_buf, uint32_t ui32, int width)
 	static unsigned char   hex[] = "0123456789abcdef";
 	//static unsigned char   HEX[] = "0123456789ABCDEF";
 
-	if (!a_buf->start) {
+	if (a_buf->size_real < 0) {
 		zc_error("pre-use of zlog_buf_resize fail, so can't convert");
 		return -1;
 	}
@@ -480,7 +505,7 @@ int zlog_buf_printf_hex(zlog_buf_t * a_buf, uint32_t ui32, int width)
 				/* zero_len not changed */
 				num_len = len_left - zero_len;
 			}
-			if (zero_len) memset(a_buf->tail, '0', zero_len);
+			memset(a_buf->tail, '0', zero_len);
 			memcpy(a_buf->tail + zero_len, p, num_len);
 			a_buf->tail += len_left;
 			//*(a_buf->tail) = '\0';
@@ -495,7 +520,7 @@ int zlog_buf_printf_hex(zlog_buf_t * a_buf, uint32_t ui32, int width)
 		}
 	}
 
-	if (zero_len) memset(a_buf->tail, '0', zero_len);
+	memset(a_buf->tail, '0', zero_len);
 	memcpy(a_buf->tail + zero_len, p, num_len);
 	a_buf->tail = q;
 	//*(a_buf->tail) = '\0';
@@ -510,11 +535,11 @@ int zlog_buf_append(zlog_buf_t * a_buf, const char *str, size_t str_len)
 	if (str_len <= 0 || str == NULL) {
 		return 0;
 	}
-	if (!a_buf->start) {
+#endif
+	if (a_buf->size_real < 0) {
 		zc_error("pre-use of zlog_buf_resize fail, so can't convert");
 		return -1;
 	}
-#endif
 
 	if ((p = a_buf->tail + str_len) > a_buf->end) {
 		int rc;
@@ -541,13 +566,13 @@ int zlog_buf_append(zlog_buf_t * a_buf, const char *str, size_t str_len)
 
 	memcpy(a_buf->tail, str, str_len);
 	a_buf->tail = p;
-	// *(a_buf->tail) = '\0';
+	// *(a_buf->tail) = '\0'; 
 	return 0;
 }
 
 /*******************************************************************************/
 int zlog_buf_adjust_append(zlog_buf_t * a_buf, const char *str, size_t str_len,
-		int left_adjust, int zero_pad, size_t in_width, size_t out_width)
+		int left_adjust, size_t in_width, size_t out_width)
 {
 	size_t append_len = 0;
 	size_t source_len = 0;
@@ -559,7 +584,7 @@ int zlog_buf_adjust_append(zlog_buf_t * a_buf, const char *str, size_t str_len,
 	}
 #endif
 
-	if (!a_buf->start) {
+	if (a_buf->size_real < 0) {
 		zc_error("pre-use of zlog_buf_resize fail, so can't convert");
 		return -1;
 	}
@@ -599,7 +624,7 @@ int zlog_buf_adjust_append(zlog_buf_t * a_buf, const char *str, size_t str_len,
 					source_len = append_len;
 					space_len = 0;
 				}
-				if (space_len) memset(a_buf->tail + source_len, ' ', space_len);
+				memset(a_buf->tail + source_len, ' ', space_len);
 				memcpy(a_buf->tail, str, source_len);
 			} else {
 				if (space_len < append_len) {
@@ -608,13 +633,7 @@ int zlog_buf_adjust_append(zlog_buf_t * a_buf, const char *str, size_t str_len,
 					space_len = append_len;
 					source_len = 0;
 				}
-				if (space_len) {
-					if (zero_pad) {
-						memset(a_buf->tail, '0', space_len);
-					} else {
-						memset(a_buf->tail, ' ', space_len);
-					}
-				}
+				memset(a_buf->tail, ' ', space_len);
 				memcpy(a_buf->tail + space_len, str, source_len);
 			}
 			a_buf->tail += append_len;
@@ -630,16 +649,10 @@ int zlog_buf_adjust_append(zlog_buf_t * a_buf, const char *str, size_t str_len,
 	}
 
 	if (left_adjust) {
-		if (space_len) memset(a_buf->tail + source_len, ' ', space_len);
+		memset(a_buf->tail + source_len, ' ', space_len);
 		memcpy(a_buf->tail, str, source_len);
 	} else {
-		if (space_len) {
-			if (zero_pad) {
-				memset(a_buf->tail, '0', space_len);
-			} else {
-				memset(a_buf->tail, ' ', space_len);
-			}
-		}
+		memset(a_buf->tail, ' ', space_len);
 		memcpy(a_buf->tail + space_len, str, source_len);
 	}
 	a_buf->tail += append_len;

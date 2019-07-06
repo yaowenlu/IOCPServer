@@ -3,9 +3,20 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * Licensed under the LGPL v2.1, see the file COPYING in base directory.
+ * The zlog Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * The zlog Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
-#include "win_compatible.h"
+
 #include "fmacros.h"
 #include <ctype.h>
 #include <stdlib.h>
@@ -15,7 +26,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <time.h>
 
 #include "conf.h"
 #include "rule.h"
@@ -23,6 +33,13 @@
 #include "level_list.h"
 #include "rotater.h"
 #include "zc_defs.h"
+
+#ifdef _MSC_VER
+#define DEF_TIME_FMT "%Y-%m-%d %H:%M:%S"
+#define snprintf _snprintf_s 
+#else
+#define DEF_TIME_FMT "%F %T"
+#endif
 
 /*******************************************************************************/
 #define ZLOG_CONF_DEFAULT_FORMAT "default = \"%D %V [%p:%F:%L] %m%n\""
@@ -32,7 +49,11 @@
 #define ZLOG_CONF_DEFAULT_FILE_PERMS 0600
 #define ZLOG_CONF_DEFAULT_RELOAD_CONF_PERIOD 0
 #define ZLOG_CONF_DEFAULT_FSYNC_PERIOD 0
+#ifdef _MSC_VER
+#define ZLOG_CONF_BACKUP_ROTATE_LOCK_FILE "d:/tmp/zlog.lock"
+#else
 #define ZLOG_CONF_BACKUP_ROTATE_LOCK_FILE "/tmp/zlog.lock"
+#endif
 /*******************************************************************************/
 
 void zlog_conf_profile(zlog_conf_t * a_conf, int flag)
@@ -93,12 +114,25 @@ void zlog_conf_del(zlog_conf_t * a_conf)
 
 static int zlog_conf_build_without_file(zlog_conf_t * a_conf);
 static int zlog_conf_build_with_file(zlog_conf_t * a_conf);
+static int file_exists(const char * filename);
+
+
+static int file_exists(const char *filename)
+{
+	FILE * file = fopen(filename, "r");
+	if (file)
+	{
+		fclose(file);
+		return 1;
+	}
+	return 0;
+}
 
 zlog_conf_t *zlog_conf_new(const char *confpath)
 {
 	int nwrite = 0;
 	int has_conf_file = 0;
-	zlog_conf_t *a_conf = NULL;
+	zlog_conf_t *a_conf;
 
 	a_conf = calloc(1, sizeof(zlog_conf_t));
 	if (!a_conf) {
@@ -106,7 +140,7 @@ zlog_conf_t *zlog_conf_new(const char *confpath)
 		return NULL;
 	}
 
-	if (confpath && confpath[0] != '\0') {
+	if (confpath && confpath[0] != '\0' && file_exists (confpath)) {
 		nwrite = snprintf(a_conf->file, sizeof(a_conf->file), "%s", confpath);
 		has_conf_file = 1;
 	} else if (getenv("ZLOG_CONF_PATH") != NULL) {
@@ -178,7 +212,7 @@ static int zlog_conf_build_without_file(zlog_conf_t * a_conf)
 {
 	zlog_rule_t *default_rule;
 
-	a_conf->default_format = zlog_format_new(a_conf->default_format_line, &(a_conf->time_cache_count));
+	a_conf->default_format = zlog_format_new(a_conf->default_format_line);
 	if (!a_conf->default_format) {
 		zc_error("zlog_format_new fail");
 		return -1;
@@ -196,8 +230,7 @@ static int zlog_conf_build_without_file(zlog_conf_t * a_conf)
 			a_conf->default_format,
 			a_conf->formats,
 			a_conf->file_perms,
-			a_conf->fsync_period,
-			&(a_conf->time_cache_count));
+			a_conf->fsync_period);
 	if (!default_rule) {
 		zc_error("zlog_rule_new fail");
 		return -1;
@@ -215,6 +248,10 @@ static int zlog_conf_build_without_file(zlog_conf_t * a_conf)
 /*******************************************************************************/
 static int zlog_conf_parse_line(zlog_conf_t * a_conf, char *line, int *section);
 
+#ifdef _MSC_VER
+#define lstat(a,b) _stat(a,b)
+#endif
+
 static int zlog_conf_build_with_file(zlog_conf_t * a_conf)
 {
 	int rc = 0;
@@ -228,12 +265,15 @@ static int zlog_conf_build_with_file(zlog_conf_t * a_conf)
 	char *p = NULL;
 	int line_no = 0;
 	int i = 0;
-	int in_quotation = 0;
 
 	int section = 0;
 	/* [global:1] [levels:2] [formats:3] [rules:4] */
 
+#if _MSC_VER
+	if (_stat(a_conf->file, &a_stat)) {
+#else
 	if (lstat(a_conf->file, &a_stat)) {
+#endif
 		zc_error("lstat conf file[%s] fail, errno[%d]", a_conf->file,
 			 errno);
 		return -1;
@@ -289,21 +329,8 @@ static int zlog_conf_build_with_file(zlog_conf_t * a_conf)
 		} else
 			pline = line;
 
+
 		*++p = '\0';
-
-		/* clean the tail comments start from # and not in quotation */
-		in_quotation = 0;
-		for (p = line; *p != '\0'; p++) {
-			if (*p == '"') {
-				in_quotation ^= 1;
-				continue;
-			}
-
-			if (*p == '#' && !in_quotation) {
-				*p = '\0';
-				break;
-			}
-		}
 
 		/* we now have the complete line,
 		 * and are positioned at the first non-whitespace
@@ -331,8 +358,8 @@ exit:
 /* section [global:1] [levels:2] [formats:3] [rules:4] */
 static int zlog_conf_parse_line(zlog_conf_t * a_conf, char *line, int *section)
 {
-	int nscan;
-	int nread;
+	int nscan = 0;
+	int nread = 0;
 	char name[MAXLEN_CFG_LINE + 1];
 	char word_1[MAXLEN_CFG_LINE + 1];
 	char word_2[MAXLEN_CFG_LINE + 1];
@@ -392,8 +419,7 @@ static int zlog_conf_parse_line(zlog_conf_t * a_conf, char *line, int *section)
 				return -1;
 			}
 
-			a_conf->default_format = zlog_format_new(a_conf->default_format_line,
-							&(a_conf->time_cache_count));
+			a_conf->default_format = zlog_format_new(a_conf->default_format_line);
 			if (!a_conf->default_format) {
 				zc_error("zlog_format_new fail");
 				return -1;
@@ -416,7 +442,6 @@ static int zlog_conf_parse_line(zlog_conf_t * a_conf, char *line, int *section)
 		memset(word_1, 0x00, sizeof(word_1));
 		memset(word_2, 0x00, sizeof(word_2));
 		memset(word_3, 0x00, sizeof(word_3));
-		nread = 0;
 		nscan = sscanf(name, "%s%n%s%s", word_1, &nread, word_2, word_3);
 
 		if (STRCMP(word_1, ==, "strict") && STRCMP(word_2, ==, "init")) {
@@ -462,7 +487,7 @@ static int zlog_conf_parse_line(zlog_conf_t * a_conf, char *line, int *section)
 		}
 		break;
 	case 3:
-		a_format = zlog_format_new(line, &(a_conf->time_cache_count));
+		a_format = zlog_format_new(line);
 		if (!a_format) {
 			zc_error("zlog_format_new fail [%s]", line);
 			if (a_conf->strict_init) return -1;
@@ -480,8 +505,7 @@ static int zlog_conf_parse_line(zlog_conf_t * a_conf, char *line, int *section)
 			a_conf->default_format,
 			a_conf->formats,
 			a_conf->file_perms,
-			a_conf->fsync_period,
-			&(a_conf->time_cache_count));
+			a_conf->fsync_period);
 
 		if (!a_rule) {
 			zc_error("zlog_rule_new fail [%s]", line);
@@ -497,6 +521,7 @@ static int zlog_conf_parse_line(zlog_conf_t * a_conf, char *line, int *section)
 	default:
 		zc_error("not in any section");
 		return -1;
+		break;
 	}
 
 	return 0;

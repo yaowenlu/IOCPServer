@@ -3,7 +3,18 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * Licensed under the LGPL v2.1, see the file COPYING in base directory.
+ * The zlog Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * The zlog Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <string.h>
@@ -108,7 +119,7 @@ zlog_category_t *zlog_category_table_fetch_category(zc_hashtable_t * categories,
 	a_category = zc_hashtable_get(categories, category_name);
 	if (a_category) return a_category;
 
-	/* else not found, create one */
+	/* else not fount, create one */
 	a_category = zlog_category_new(category_name, rules);
 	if (!a_category) {
 		zc_error("zc_category_new fail");

@@ -44,8 +44,6 @@
  * Contains the declarations for the glob() API.
  */
 
-#include "unixem/glob_unixem.h"
-
 #ifndef SYNSOFT_UNIXEM_INCL_H_GLOB
 #define SYNSOFT_UNIXEM_INCL_H_GLOB
 

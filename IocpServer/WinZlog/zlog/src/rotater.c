@@ -3,22 +3,44 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * Licensed under the LGPL v2.1, see the file COPYING in base directory.
+ * The zlog Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * The zlog Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
-#include "win_compatible.h"
-#include <string.h>
-#include <glob.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <string.h>
+#include "zc_defs.h"
+
+
+
+#ifdef _MSC_VER
+#include <io.h>
+#endif
 #include <fcntl.h>
 #include <pthread.h>
 
-#include "zc_defs.h"
+#ifdef _MSC_VER
+//#include <unixem/glob.h>
+#include <unixem/glob_unixem.h>
+#include <glob.h>
+#endif
+
+
 #include "rotater.h"
 
 #define ROLLING  1     /* aa.02->aa.03, aa.01->aa.02, aa->aa.01 */
@@ -31,7 +53,7 @@ typedef struct {
 
 void zlog_rotater_profile(zlog_rotater_t * a_rotater, int flag)
 {
-	zc_assert(a_rotater,);
+	zc_assert(a_rotater,0);
 	zc_profile(flag, "--rotater[%p][%p,%s,%d][%s,%s,%s,%ld,%ld,%d,%d,%d]--",
 		a_rotater,
 
@@ -64,17 +86,23 @@ void zlog_rotater_del(zlog_rotater_t *a_rotater)
 	zc_assert(a_rotater,);
 
 	if (a_rotater->lock_fd) {
+#ifdef _MSC_VER
+		if (CloseHandle(a_rotater->lock_fd)) {
+			zc_error("close fail[%s], errno[%d]", a_rotater->lock_file, GetLastError());
+		}
+#else
 		if (close(a_rotater->lock_fd)) {
 			zc_error("close fail, errno[%d]", errno);
 		}
+#endif
 	}
 
 	if (pthread_mutex_destroy(&(a_rotater->lock_mutex))) {
 		zc_error("pthread_mutex_destroy fail, errno[%d]", errno);
 	}
 
+	free(a_rotater);
 	zc_debug("zlog_rotater_del[%p]", a_rotater);
-    free(a_rotater);
 	return;
 }
 
@@ -102,11 +130,39 @@ zlog_rotater_t *zlog_rotater_new(char *lock_file)
 	 * user B is unable to read /tmp/zlog.lock
 	 * B has to choose another lock file except /tmp/zlog.lock
 	 */
-#ifndef _MSC_VER
-	fd = open(lock_file, O_RDWR | O_CREAT,
-		S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+
+
+	//
+	//  These are the generic rights.
+	//
+
+#define GENERIC_READ                     (0x80000000L)
+#define GENERIC_WRITE                    (0x40000000L)
+#define GENERIC_EXECUTE                  (0x20000000L)
+#define GENERIC_ALL                      (0x10000000L)
+
+#define FILE_SHARE_READ                 0x00000001  
+#define FILE_SHARE_WRITE                0x00000002  
+#define FILE_SHARE_DELETE               0x00000004  
+
+#define OPEN_ALWAYS         4
+#define FILE_ATTRIBUTE_NORMAL               0x00000080  
+
+
+#ifdef _MSC_VER
+	//fd = CreateFile(lock_file,
+	fd = CreateFileA(lock_file,
+			(GENERIC_READ|GENERIC_WRITE),
+			(FILE_SHARE_READ|FILE_SHARE_WRITE),
+			NULL,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
+	zc_debug("opened");
+	if (fd <= 0) {
+		zc_error("open file[%s] fail, errno[%d]", lock_file, errno);
+		goto err;
+	}
 #else
-	fd = open(lock_file, O_RDWR | O_CREAT);
+	fd = open(lock_file, O_RDWR | O_CREAT,
+		  S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
 #endif
 	if (fd < 0) {
 		zc_error("open file[%s] fail, errno[%d]", lock_file, errno);
@@ -136,6 +192,7 @@ static zlog_file_t *zlog_file_check_new(zlog_rotater_t * a_rotater, const char *
 {
 	int nwrite;
 	int nread;
+	int nscan;
 	zlog_file_t *a_file;
 
 	/* base_path will not be in list */
@@ -160,8 +217,8 @@ static zlog_file_t *zlog_file_check_new(zlog_rotater_t * a_rotater, const char *
 		goto err;
 	}
 
-	nread = 0;
-	sscanf(a_file->path + a_rotater->num_start_len, "%d%n", &(a_file->index), &(nread));
+	nscan = sscanf(a_file->path + a_rotater->num_start_len, "%d%n", &(a_file->index), &(nread));
+	if (nscan == 0) nread = 0; /* if nothing is scaned, nread will be a random number */
 
 	if (a_rotater->num_width != 0) {
 		if (nread < a_rotater->num_width) {
@@ -179,13 +236,19 @@ err:
 
 static int zlog_file_cmp(zlog_file_t * a_file_1, zlog_file_t * a_file_2)
 {
-	return (a_file_1->index > a_file_2->index);
+	if (a_file_1->index - a_file_2->index > 0)
+		return 1;
+	else if (a_file_1->index - a_file_2->index < 0)
+		return -1;
+	else
+		return 0;
 }
 
 static int zlog_rotater_add_archive_files(zlog_rotater_t * a_rotater)
 {
 	int rc = 0;
-	glob_t glob_buf;
+	//glob_t glob_buf;
+	unixem_glob_t glob_buf;
 	size_t pathc;
 	char **pathv;
 	zlog_file_t *a_file;
@@ -379,7 +442,6 @@ static int zlog_rotater_parse_archive_path(zlog_rotater_t * a_rotater)
 			return -1;
 		}
 
-		nread = 0;
 		sscanf(p, "#%d%n", &(a_rotater->num_width), &nread);
 		if (nread == 0) nread = 1;
 		if (*(p+nread) == 'r') {
@@ -474,7 +536,6 @@ static int zlog_rotater_trylock(zlog_rotater_t *a_rotater)
 {
 	int rc;
 #ifndef _MSC_VER
-
 	struct flock fl;
 
 	fl.l_type = F_WRLCK;
@@ -491,14 +552,12 @@ static int zlog_rotater_trylock(zlog_rotater_t *a_rotater)
 		zc_error("pthread_mutex_trylock fail, rc[%d]", rc);
 		return -1;
 	}
+
 #ifdef _MSC_VER
-	if (LockFile(a_rotater->lock_fd,999,0,1,0)==0) {
-		zc_error("lock fd[%d] fail", a_rotater->lock_fd);
-		if (pthread_mutex_unlock(&(a_rotater->lock_mutex))) {
-			zc_error("pthread_mutex_unlock fail, errno[%d]", errno);
-		}
-		return(-1); 
-	}
+        if (LockFile(a_rotater->lock_fd,999,0,1,0)==0) {
+	  zc_error("lock fd[%d] fail", a_rotater->lock_fd);
+          return(-1); 
+        }
 #else
 	if (fcntl(a_rotater->lock_fd, F_SETLK, &fl)) {
 		if (errno == EAGAIN || errno == EACCES) {
@@ -535,10 +594,10 @@ static int zlog_rotater_unlock(zlog_rotater_t *a_rotater)
 		zc_error("unlock fd[%s] fail, errno[%d]", a_rotater->lock_fd, errno);
 	}
 #else
-	if (UnlockFile(a_rotater->lock_fd,999,0,1,0)==0) {
-		rc = -1;
-		zc_error("unlock fd[%s] fail", a_rotater->lock_fd);
-	}
+        if (UnlockFile(a_rotater->lock_fd,999,0,1,0)==0) {
+          rc = -1;
+	  zc_error("unlock fd[%s] fail", a_rotater->lock_fd);
+        }
 #endif
 
 	if (pthread_mutex_unlock(&(a_rotater->lock_mutex))) {
@@ -551,7 +610,8 @@ static int zlog_rotater_unlock(zlog_rotater_t *a_rotater)
 
 int zlog_rotater_rotate(zlog_rotater_t *a_rotater,
 		char *base_path, size_t msg_len,
-		char *archive_path, long archive_max_size, int archive_max_count)
+		char *archive_path, long archive_max_size, int archive_max_count,
+		int *reopen_fd, int reopen_flags, unsigned int reopen_perms)
 {
 	int rc = 0;
 	struct zlog_stat info;
@@ -562,6 +622,9 @@ int zlog_rotater_rotate(zlog_rotater_t *a_rotater,
 		zc_warn("zlog_rotater_trylock fail, maybe lock by other process or threads");
 		return 0;
 	}
+
+	/* just one thread in one process in the global system run code here, 
+	 * so it is safe to reopen the fd of file */
 
 	if (stat(base_path, &info)) {
 		rc = -1;
@@ -585,6 +648,19 @@ int zlog_rotater_rotate(zlog_rotater_t *a_rotater,
 	} /* else if (rc == 0) */
 
 	//zc_debug("zlog_rotater_file_ls_mv success");
+
+	if (reopen_fd == NULL) goto exit;
+
+	if (zlogclose(*reopen_fd)) {
+		rc = -1;
+		zc_error("close fail, errno[%d]", errno);
+	} /* still try open again */
+
+	if ((*reopen_fd = zlogopen(base_path, reopen_flags, reopen_perms)) < 0) {
+		rc = -1;
+		zc_error("open fail, errno[%d]", errno);
+		goto exit;
+	}
 
 exit:
 	/* unlock file */

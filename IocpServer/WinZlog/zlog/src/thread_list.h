@@ -1,7 +1,7 @@
 /*
  * This file is part of the zlog Library.
  *
- * Copyright (C) 2011 by Hardy Simpson <HardySimpson@gmail.com>
+ * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
  * The zlog Library is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -17,33 +17,22 @@
  * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdio.h>
-#include "zlog.h"
+#ifndef __zlog_thread_list_h
+#define __zlog_thread_list_h
 
-int main(int argc, char** argv)
-{
-	int rc;
-	zlog_category_t *zc;
+#include <pthread.h>
+#include "zc_defs.h"
+#include "thread.h"
 
-	//rc = zlog_init(".\\test_hello.conf");
-	rc = zlog_init("");
-	
-	if (rc) {
-		printf("init failed\n");
-		return -1;
-	}
+zc_arraylist_t *zlog_thread_list_new(void);
+void zlog_thread_list_del(zc_arraylist_t *threads);
+void zlog_thread_list_profile(zc_arraylist_t *threads, int flag);
 
-	zc = zlog_get_category("my_cat");
-	if (!zc) {
-		printf("get cat fail\n");
-		zlog_fini();
-		return -2;
-	}
+int zlog_thread_list_update_msg_buf(zc_arraylist_t * threads, size_t buf_size_min, size_t buf_size_max);
+void zlog_thread_list_commit_msg_buf(zc_arraylist_t * threads);
+void zlog_thread_list_rollback_msg_buf(zc_arraylist_t * threads);
 
-	zlog_info(zc, "hello, zlog");
+zlog_thread_t *zlog_thread_list_new_thread(zc_arraylist_t * threads, pthread_key_t key,
+			size_t buf_size_min, size_t buf_size_max);
 
-	zlog_fini();
-	getchar();
-	
-	return 0;
-}
+#endif
