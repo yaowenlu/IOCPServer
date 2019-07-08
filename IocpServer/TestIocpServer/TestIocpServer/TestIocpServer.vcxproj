@@ -69,6 +69,11 @@
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
+    <PostBuildEvent>
+      <Command>copy "$(SolutionDir)..\\WinZlog\\Release\\bin\\pthreadVC2.dll" "$(TargetDir)"
+copy "$(SolutionDir)..\\WinZlog\\Release\\bin\\pthreadVSE2.dll" "$(TargetDir)"
+copy "$(SolutionDir)..\\WinZlog\\Release\\bin\\zlog.dll" "$(TargetDir)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>

@@ -13,11 +13,12 @@
 #include "MsgDefine.h"
 
 #define MAX_WORD_THREAD_NUMS 256	//最大工作线程数
+#define MAX_FREE_CLIENT_NUM	 1000	//最大空闲连接数
 //缓存定义
-#define SED_SIZE				150000							//缓冲区大小
-#define RCV_SIZE				100000							//缓冲区大小
+#define SED_SIZE				60000							//发送缓冲区大小
+#define RCV_SIZE				60000							//接收缓冲区大小
 #define TIME_OUT				3000
-#define MAX_SEND_SIZE			4000
+#define MAX_SEND_SIZE			4000							//单条消息最多发送的数据大小
 
 
 class CClientSocket;
@@ -61,8 +62,17 @@ struct sThreadData
 {
 	HANDLE hCompletionPort;//完成端口
 	HANDLE hThreadEvent;//线程事件
+	HANDLE hJobEvent;//线程事件
 	SOCKET hLsSocket;//监听socket			
 	CClientManager*	pSocketManage;//管理指针
+};
+
+//工作结构
+struct sJobItem
+{
+	__int64 i64Index;//客户端索引
+	unsigned short usBufLen;
+	BYTE *pJobBuff;
 };
 
 //客户端管理类
@@ -90,10 +100,15 @@ public:
 		m_bShutDown = bShutDown;
 		return;
 	}
+	//增加任务
+	void AddJob(sJobItem *pJob);
+	//处理任务
+	bool ProcessJob();
 private:
 	
 	std::map<unsigned __int64, CClientSocket*> m_mapClientConnect;
 	std::list<CClientSocket *> m_lstFreeClientConn;
+	std::list<sJobItem *> m_lstJobItem;
 
 	bool m_bShutDown;//是否关闭服务
 	int m_iClientNums;//客户端连接数
@@ -101,6 +116,7 @@ private:
 
 	//锁
 	CRITICAL_SECTION m_csConnectLock;
+	CRITICAL_SECTION m_csJob;
 };
 
 //每个客户端连接信息
@@ -130,6 +146,8 @@ public:
 	bool OnSendBegin();
 	//发送完成
 	bool OnSendCompleted(DWORD dwSendCount);
+	//处理消息
+	void HandleMsg(void *pMsgBuf, unsigned short usBufLen);
 
 private:
 	SOCKET m_hSocket;//连接对应的socket
@@ -157,15 +175,21 @@ class yServerSocket
 public:
 	yServerSocket();
 	~yServerSocket();
-	static unsigned __stdcall WorkThreadProc(LPVOID pThreadParam);
+	//监听线程
 	static unsigned __stdcall ListenThreadProc(LPVOID pThreadParam);
+	//IO线程
+	static unsigned __stdcall IOThreadProc(LPVOID pThreadParam);
+	//工作线程
+	static unsigned __stdcall JobThreadProc(LPVOID pThreadParam);
 public:
 	//开始服务
-	int StartService(int iPort, unsigned short usWorkThreadNum);
+	int StartService(int iPort, unsigned short usIoThreadNum, unsigned short usJobThreadNum);
 	//停止服务
 	int StopService();
-	//开始工作
-	int StartWork(unsigned short usThreadNum);
+	//IO开始工作
+	int StartIOWork(unsigned short usThreadNum);
+	//开始任务处理
+	int StartJobWork(unsigned short usThreadNum);
 	//开始监听
 	int StartListen(int iPort);
 
@@ -174,8 +198,10 @@ protected:
 private:
 	bool m_bWorking;
 	int m_iWSAInitResult;
-	unsigned short m_usThreadNum;
+	unsigned short m_usIoThreadNum;
+	unsigned short m_usJobThreadNum;
 	HANDLE m_hThreadEvent;//批量发送事件
+	HANDLE m_hJobEvent;//批量发送事件
 	HANDLE m_hCompletionPort;//完成端口
 	HANDLE m_hListenThread;//监听线程句柄
 	SOCKET m_lsSocket;//监听socket

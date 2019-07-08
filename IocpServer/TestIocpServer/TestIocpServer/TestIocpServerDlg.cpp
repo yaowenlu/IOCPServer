@@ -190,7 +190,7 @@ void CTestIocpServerDlg::OnBnClickedButtonStartService()
 	CString strLog;
 	strLog.Format("StartService iListenPort=%d, iWorkThreadNum=%d", iListenPort, iWorkThreadNum);
 	m_lstLogs.InsertItem(m_lstLogs.GetItemCount(), strLog);
-	int iRet = m_pServerScoket->StartService(iListenPort, iWorkThreadNum);
+	int iRet = m_pServerScoket->StartService(iListenPort, iWorkThreadNum, iWorkThreadNum);
 	if(0 != iRet)
 	{
 		strLog.Format("StartService ERROR iRet=%d", iRet);
