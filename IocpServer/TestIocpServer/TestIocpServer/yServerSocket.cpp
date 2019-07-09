@@ -1,6 +1,9 @@
 #include "stdafx.h"
 #include "yServerSocket.h"
 
+#pragma comment(lib,"ws2_32.lib")
+#pragma comment(lib,"zlog.lib")
+
 CClientManager::CClientManager()
 {
 	m_mapClientConnect.clear();
@@ -12,12 +15,14 @@ CClientManager::CClientManager()
 
 	::InitializeCriticalSection(&m_csConnectLock);
 	::InitializeCriticalSection(&m_csJob);
+	//::InitializeCriticalSection(&m_csEvent);
 }
 
 CClientManager::~CClientManager()
 {
 	::DeleteCriticalSection(&m_csConnectLock);
 	::DeleteCriticalSection(&m_csJob);
+	//::DeleteCriticalSection(&m_csEvent);
 }
 
 //收到一个连接
@@ -77,6 +82,8 @@ bool CClientManager::CloseOneConnection(CClientSocket *pClient, unsigned __int64
 		::LeaveCriticalSection(&m_csConnectLock);
 		return false;
 	}
+	//iterFind->second跟pClient是同一个指针
+	iterFind->second->CloseSocket();
 	//最多保留MAX_FREE_CLIENT_NUM个空闲资源备用
 	if(m_lstFreeClientConn.size() < MAX_FREE_CLIENT_NUM)
 	{
@@ -85,10 +92,10 @@ bool CClientManager::CloseOneConnection(CClientSocket *pClient, unsigned __int64
 	else
 	{
 		delete iterFind->second;
+		iterFind->second = nullptr;
 	}
 	m_mapClientConnect.erase(iterFind);
 	--m_iClientNums;
-	pClient->CloseSocket();
 	dzlog_debug("CloseOneConnection i64Index=%lld, m_iClientNums=%d", i64Index, m_iClientNums);
 	::LeaveCriticalSection(&m_csConnectLock);
 	return true;
@@ -125,19 +132,20 @@ bool CClientManager::CloseAllConnection()
 	}
 	m_lstFreeClientConn.clear();
 
-	//释放空闲资源
+	//释放任务
 	std::list<sJobItem *>::iterator lstJob = m_lstJobItem.begin();
 	for(;lstJob != m_lstJobItem.end(); lstJob++)
 	{
 		//释放资源
 		if(nullptr != *lstJob)
 		{
-			delete (*lstJob)->pJobBuff;
+			delete[] (*lstJob)->pJobBuff;
+			(*lstJob)->pJobBuff = nullptr;
 			delete *lstJob;
 			*lstJob = nullptr;
 		}
 	}
-	m_lstFreeClientConn.clear();
+	m_lstJobItem.clear();
 	::LeaveCriticalSection(&m_csConnectLock);
 	return true;
 }
@@ -175,15 +183,24 @@ int CClientManager::SendData(unsigned __int64 i64Index, void* pData, UINT uBufLe
 }
 
 //增加任务
-void CClientManager::AddJob(sJobItem *pJob)
+bool CClientManager::AddJob(sJobItem *pJob)
 {
+	bool bSucc = false;
 	if(nullptr != pJob)
 	{
 		EnterCriticalSection(&m_csJob);
-		m_lstJobItem.push_back(pJob);
+		if(m_lstJobItem.size() < MAX_WAIT_JOB_COUNT)
+		{
+			m_lstJobItem.push_back(pJob);
+			bSucc = true;
+		}
+		else
+		{
+			dzlog_warn("AddJob failed, too much job! i64Index=%lld", pJob->i64Index);
+		}
 		LeaveCriticalSection(&m_csJob);
 	}
-	return;
+	return bSucc;
 }
 
 //处理任务
@@ -191,6 +208,7 @@ bool CClientManager::ProcessJob()
 {
 	sJobItem* pJob = nullptr;
 	EnterCriticalSection(&m_csJob);
+	dzlog_debug("ProcessJob m_lstJobItem.size()=%d", m_lstJobItem.size());
 	if(m_lstJobItem.size() > 0)
 	{
 		pJob = *(m_lstJobItem.begin());
@@ -206,9 +224,16 @@ bool CClientManager::ProcessJob()
 	if(iterClient != m_mapClientConnect.end())
 	{
 		iterClient->second->HandleMsg(pJob->pJobBuff, pJob->usBufLen);
-		delete pJob->pJobBuff;
-		delete pJob;
 	}
+	else
+	{
+		dzlog_warn("ProcessJob i64Index=%d not exists!", pJob->i64Index);
+	}
+	//释放申请的内存
+	delete[] pJob->pJobBuff;
+	pJob->pJobBuff = nullptr;
+	delete pJob;
+	pJob = nullptr;
 	LeaveCriticalSection(&m_csConnectLock);
 	return true;
 }
@@ -277,15 +302,16 @@ bool CClientSocket::OnRecvBegin()
 }
 
 //接收完成函数
-bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount)
+int CClientSocket::OnRecvCompleted(DWORD dwRecvCount)
 {
 	if(dwRecvCount <= 0)
 	{
-		return false;
+		return 0;
 	}
 	EnterCriticalSection(&m_csRecvLock);
 	//处理数据
 	m_dwRecvBuffLen += dwRecvCount;
+	int iNewJobCount = 0;
 	//获取本次消息的大小
 	DWORD* pMsgSize = nullptr;
 	while(m_dwRecvBuffLen > sizeof(DWORD))
@@ -300,7 +326,7 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount)
 			{
 				m_pManage->CloseOneConnection(this, m_i64Index);
 				LeaveCriticalSection(&m_csRecvLock);
-				return false;
+				return iNewJobCount;
 			}
 			//将任务交给专门的业务线程处理
 			sJobItem *pJob = new sJobItem;
@@ -308,7 +334,10 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount)
 			pJob->usBufLen = *pMsgSize;
 			pJob->pJobBuff = new BYTE[pJob->usBufLen];
 			memcpy(pJob->pJobBuff, m_szRecvBuf, pJob->usBufLen*sizeof(BYTE));
-			m_pManage->AddJob(pJob);
+			if(m_pManage->AddJob(pJob))
+			{
+				++iNewJobCount;
+			}
 
 			//删除处理过的缓存数据
 			::MoveMemory(m_szRecvBuf, m_szRecvBuf + *pMsgSize, m_dwRecvBuffLen - *pMsgSize);
@@ -320,7 +349,7 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount)
 		}
 	}	
 	LeaveCriticalSection(&m_csRecvLock);
-	return true;
+	return iNewJobCount;
 }
 
 //发送数据函数
@@ -432,10 +461,6 @@ yServerSocket::yServerSocket()
 	std::string strFullPath = szPath;
 	strFullPath += "/conf/zlog_conf.conf";
 	int iRet = dzlog_init(strFullPath.c_str(), "my_cat");
-	if(0 != iRet)
-	{
-
-	}
 	m_bWorking = false;
 	m_iWSAInitResult = -1;
 	m_usIoThreadNum = 0;
@@ -445,21 +470,12 @@ yServerSocket::yServerSocket()
 	m_hListenThread = NULL;
 	m_lsSocket = INVALID_SOCKET;
 	m_pClientManager = nullptr;
-	dzlog_debug("constructor yServerSocket finish!");
+	dzlog_debug("constructor yServerSocket finish! iRet=%d", iRet);
 }
 
 yServerSocket::~yServerSocket()
 {
-	if(NO_ERROR == m_iWSAInitResult)
-	{
-		WSACleanup();
-	}
-
-	if(nullptr != m_pClientManager)
-	{
-		delete m_pClientManager;
-		m_pClientManager = nullptr;
-	}
+	StopService();
 	dzlog_debug("distructor yServerSocket finish!");
 	zlog_fini();
 }
@@ -498,11 +514,20 @@ int yServerSocket::StopService()
 		m_hCompletionPort = NULL;
 	}
 
+	//关闭所有客户端
+	if(nullptr != m_pClientManager)
+	{
+		m_pClientManager->SetIsShutDown(true);
+		m_pClientManager->CloseAllConnection();
+		m_pClientManager = nullptr;
+	}
+
 	//关闭工作线程
 	for (UINT i=0; i<m_usJobThreadNum; i++)
 	{
-		::WaitForSingleObject(m_hThreadEvent, TIME_OUT);
-		::ResetEvent(m_hThreadEvent);
+		SetEvent(m_hJobEvent);
+		::WaitForSingleObject(m_hJobEvent, TIME_OUT);
+		::ResetEvent(m_hJobEvent);
 	}
 	m_usJobThreadNum = 0;
 
@@ -518,11 +543,9 @@ int yServerSocket::StopService()
 		m_hJobEvent = NULL;
 	}
 
-	//关闭所有客户端
-	if(nullptr != m_pClientManager)
+	if(NO_ERROR == m_iWSAInitResult)
 	{
-		m_pClientManager->SetIsShutDown(true);
-		m_pClientManager->CloseAllConnection();
+		WSACleanup();
 	}
 	return 0;
 }
@@ -532,10 +555,12 @@ int yServerSocket::StartService(int iPort, unsigned short usIoThreadNum, unsigne
 	dzlog_debug("yServerSocket StartService! iPort=%d, usIoThreadNum=%d, usJobThreadNum=%d", iPort, usIoThreadNum, usJobThreadNum);
 	if(m_bWorking)
 	{
+		dzlog_error("StartService is working!");
 		return CODE_SERVICE_WORKING;
 	}
 	if(iPort <= 100)
 	{
+		dzlog_error("StartService iPort=%d illgelal!", iPort);
 		return CODE_SERVICE_PARAM_ERROR;
 	}
 
@@ -553,6 +578,12 @@ int yServerSocket::StartService(int iPort, unsigned short usIoThreadNum, unsigne
 	}
 	m_usIoThreadNum = usIoThreadNum;
 
+	if (usJobThreadNum <=0 || usJobThreadNum >= MAX_WORD_THREAD_NUMS) 
+	{
+		usJobThreadNum = SystemInfo.dwNumberOfProcessors*2;
+	}
+	m_usJobThreadNum = usJobThreadNum;
+
 	WSADATA wsaData;
 	m_iWSAInitResult = WSAStartup(MAKEWORD(2,2), &wsaData);
 	if(NO_ERROR != m_iWSAInitResult)
@@ -562,6 +593,12 @@ int yServerSocket::StartService(int iPort, unsigned short usIoThreadNum, unsigne
 
 	m_hThreadEvent = ::CreateEvent(NULL,TRUE,false,NULL);
 	if(NULL == m_hThreadEvent)
+	{
+		return CODE_SERVICE_CREATE_EVENT_ERROR;
+	}
+
+	m_hJobEvent = ::CreateEvent(NULL,TRUE,false,NULL);
+	if(NULL == m_hJobEvent)
 	{
 		return CODE_SERVICE_CREATE_EVENT_ERROR;
 	}
@@ -578,11 +615,6 @@ int yServerSocket::StartService(int iPort, unsigned short usIoThreadNum, unsigne
 		return CODE_SERVICE_WORK_FAILED;
 	}
 
-	m_hJobEvent = ::CreateEvent(NULL,TRUE,false,NULL);
-	if(NULL == m_hJobEvent)
-	{
-		return CODE_SERVICE_CREATE_EVENT_ERROR;
-	}
 	iRet = StartJobWork(m_usJobThreadNum);
 	if(0 != iRet)
 	{
@@ -618,6 +650,7 @@ int yServerSocket::StartIOWork(unsigned short usThreadNum)
 	threadData.pSocketManage = m_pClientManager;
 	for(int i=0;i<usThreadNum;i++)
 	{
+		threadData.iThreadIndex = i;
 		hThreadHandle = (HANDLE)::_beginthreadex(nullptr, 0, IOThreadProc, &threadData, 0, &uThreadID);
 		if(NULL == hThreadHandle)
 		{
@@ -650,6 +683,7 @@ int yServerSocket::StartJobWork(unsigned short usThreadNum)
 	threadData.pSocketManage = m_pClientManager;
 	for(int i=0;i<usThreadNum;i++)
 	{
+		threadData.iThreadIndex = i;
 		hThreadHandle = (HANDLE)::_beginthreadex(nullptr, 0, JobThreadProc, &threadData, 0, &uThreadID);
 		if(NULL == hThreadHandle)
 		{
@@ -696,6 +730,7 @@ int yServerSocket::StartListen(int iPort)
 	threadData.hJobEvent = m_hJobEvent;
 	threadData.hLsSocket = m_lsSocket;
 	threadData.pSocketManage = m_pClientManager;
+	threadData.iThreadIndex = 0;
 	m_hListenThread = (HANDLE)::_beginthreadex(nullptr, 0, ListenThreadProc, &threadData, 0, &uThreadID);
 	if (NULL == m_hListenThread)
 	{
@@ -717,6 +752,7 @@ unsigned __stdcall yServerSocket::IOThreadProc(LPVOID pParam)
 	HANDLE hCompletionPort = pThreadData->hCompletionPort;
 	HANDLE hThreadEvent = pThreadData->hThreadEvent;
 	HANDLE hJobEvent = pThreadData->hJobEvent;
+	int iThreadIndex = pThreadData->iThreadIndex;
 	//线程数据读取完成
 	SetEvent(hThreadEvent);
 	if(!pClientManager)
@@ -730,6 +766,7 @@ unsigned __stdcall yServerSocket::IOThreadProc(LPVOID pParam)
 		CClientSocket *pClient = nullptr;
 		sOverLapped *pOverLapped = nullptr;
 		::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&pClient, &lpOverlapped, INFINITE);
+		dzlog_debug("IOThreadProc iThreadIndex=%d, dwTransferred=%d", iThreadIndex, dwTransferred);
 		if(nullptr != lpOverlapped)
 		{
 			pOverLapped = CONTAINING_RECORD(lpOverlapped, sOverLapped, OverLapped);
@@ -740,9 +777,12 @@ unsigned __stdcall yServerSocket::IOThreadProc(LPVOID pParam)
 			//收到退出消息
 			if ((nullptr == pClient) && (nullptr == pOverLapped)) 
 			{
+				
 				::SetEvent(hThreadEvent);
+				
 			}
-			_endthreadex(0);
+			dzlog_debug("IOThreadProc exit! iThreadIndex=%d", iThreadIndex);
+			return 0;
 		}
 
 		//客户端断开连接了
@@ -762,11 +802,13 @@ unsigned __stdcall yServerSocket::IOThreadProc(LPVOID pParam)
 			}
 		case SOCKET_REV_FINISH:
 			{
-				pClient->OnRecvCompleted(dwTransferred);
-				//通知工作线程
-				if(dwTransferred > 0)
+				//有接收到新的job
+				if(pClient->OnRecvCompleted(dwTransferred)>0)
 				{
+					//通知工作线程
+					//EnterCriticalSection(&pClientManager->m_csEvent);
 					SetEvent(hJobEvent);
+					//LeaveCriticalSection(&pClientManager->m_csEvent);
 				}
 				break;
 			}
@@ -783,6 +825,7 @@ unsigned __stdcall yServerSocket::IOThreadProc(LPVOID pParam)
 			}
 		}
 	}
+	dzlog_debug("IOThreadProc exit! iThreadIndex=%d", iThreadIndex);
 	return 0;
 }
 
@@ -816,8 +859,8 @@ unsigned __stdcall yServerSocket::ListenThreadProc(LPVOID pParam)
 			hSocket = ::WSAAccept(hLsSocket, NULL, &nLen, 0, 0); 
 			if (INVALID_SOCKET == hSocket)
 			{
-				int iRet = WSAGetLastError();
-				_endthreadex(0);
+				dzlog_error("WSAAccept error! WSAGetLastError=%d", WSAGetLastError());
+				return 0;
 			}
 			else
 			{
@@ -857,6 +900,7 @@ unsigned __stdcall yServerSocket::JobThreadProc(LPVOID pParam)
 	CClientManager* pClientManager = pThreadData->pSocketManage;
 	HANDLE hJobEvent = pThreadData->hJobEvent;
 	HANDLE hThreadEvent = pThreadData->hThreadEvent;
+	int iThreadIndex = pThreadData->iThreadIndex;
 	//线程数据读取完成
 	SetEvent(hThreadEvent);
 	if(!pClientManager)
@@ -867,11 +911,16 @@ unsigned __stdcall yServerSocket::JobThreadProc(LPVOID pParam)
 	while (!pClientManager->GetIsShutDown())
 	{
 		WaitForSingleObject(hJobEvent, INFINITE);
+		dzlog_debug("JobThreadProc get single! iThreadIndex=%d", iThreadIndex);
 		//没有任务了
 		if(!pClientManager->ProcessJob())
 		{
+			//EnterCriticalSection(&pClientManager->m_csEvent);
 			ResetEvent(hJobEvent);
+			//LeaveCriticalSection(&pClientManager->m_csEvent);
 		}
 	}
+	dzlog_debug("JobThreadProc exit! iThreadIndex=%d", iThreadIndex);
+	SetEvent(hThreadEvent);
 	return 0;
 }

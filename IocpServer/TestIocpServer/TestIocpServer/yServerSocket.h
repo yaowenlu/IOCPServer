@@ -2,10 +2,8 @@
 #define Y_SERVER_SOCKET_H
 
 #include <winsock2.h>
-#pragma comment(lib,"ws2_32.lib")
 //zlog日志库
 #include "zlog.h"
-#pragma comment(lib,"zlog.lib")
 
 #include "afxwin.h"
 #include <map>
@@ -14,6 +12,7 @@
 
 #define MAX_WORD_THREAD_NUMS 256	//最大工作线程数
 #define MAX_FREE_CLIENT_NUM	 1000	//最大空闲连接数
+#define MAX_WAIT_JOB_COUNT	10000	//最大等待工作数，超出将不会再处理
 //缓存定义
 #define SED_SIZE				60000							//发送缓冲区大小
 #define RCV_SIZE				60000							//接收缓冲区大小
@@ -60,6 +59,7 @@ struct sOverLapped
 //线程启动参数结构
 struct sThreadData	
 {
+	int iThreadIndex;
 	HANDLE hCompletionPort;//完成端口
 	HANDLE hThreadEvent;//线程事件
 	HANDLE hJobEvent;//线程事件
@@ -101,7 +101,7 @@ public:
 		return;
 	}
 	//增加任务
-	void AddJob(sJobItem *pJob);
+	bool AddJob(sJobItem *pJob);
 	//处理任务
 	bool ProcessJob();
 private:
@@ -117,6 +117,8 @@ private:
 	//锁
 	CRITICAL_SECTION m_csConnectLock;
 	CRITICAL_SECTION m_csJob;
+public:
+	//CRITICAL_SECTION m_csEvent;
 };
 
 //每个客户端连接信息
@@ -138,7 +140,7 @@ public:
 	//开始接收数据
 	bool OnRecvBegin();
 	//接收完成函数
-	bool OnRecvCompleted(DWORD dwRecvCount);
+	int OnRecvCompleted(DWORD dwRecvCount);
 
 	//发送数据函数
 	int SendData(void* pData, UINT uBufLen, BYTE bMainID, BYTE bAssistantID, BYTE bHandleCode);
@@ -206,7 +208,6 @@ private:
 	HANDLE m_hListenThread;//监听线程句柄
 	SOCKET m_lsSocket;//监听socket
 	CClientManager *m_pClientManager;
-	zlog_category_t *m_pZlogCat;
 };
 
 #endif
