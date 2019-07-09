@@ -11,11 +11,13 @@
 #include "MsgDefine.h"
 
 #define MAX_WORD_THREAD_NUMS 256	//最大工作线程数
+#define MAX_FREE_CLIENT_NUM	 1000	//最大空闲连接数
+#define MAX_WAIT_JOB_COUNT	10000	//最大等待工作数，超出将不会再处理
 //缓存定义
-#define SED_SIZE				150000							//缓冲区大小
-#define RCV_SIZE				100000							//缓冲区大小
+#define SED_SIZE				60000							//发送缓冲区大小
+#define RCV_SIZE				60000							//接收缓冲区大小
 #define TIME_OUT				3000
-#define MAX_SEND_SIZE			4000
+#define MAX_SEND_SIZE			4000							//单条消息最多发送的数据大小
 
 
 class CClientSocket;
@@ -56,10 +58,20 @@ struct sOverLapped
 //线程启动参数结构
 struct sThreadData	
 {
+	int iThreadIndex;
 	HANDLE hCompletionPort;//完成端口
 	HANDLE hThreadEvent;//线程事件
+	HANDLE hJobEvent;//线程事件
 	SOCKET hLsSocket;//监听socket			
 	CClientManager*	pSocketManage;//管理指针
+};
+
+//工作结构
+struct sJobItem
+{
+	__int64 i64Index;//客户端索引
+	unsigned short usBufLen;
+	BYTE *pJobBuff;
 };
 
 //客户端管理类
@@ -78,12 +90,24 @@ public:
 	//发送数据
 	int SendData(unsigned __int64 i64Index, void* pData, UINT uBufLen, BYTE bMainID, BYTE bAssistantID, BYTE bHandleCode);
 	//
-	bool GetIsShutDown(){return m_bShutDown;}
-	void SetIsShutDown(bool bShutDown){m_bShutDown = bShutDown;return;}
+	bool GetIsShutDown()
+	{
+		return m_bShutDown;
+	}
+	void SetIsShutDown(bool bShutDown)
+	{
+		m_bShutDown = bShutDown;
+		return;
+	}
+	//增加任务
+	bool AddJob(sJobItem *pJob);
+	//处理任务
+	bool ProcessJob();
 private:
-
+	
 	std::map<unsigned __int64, CClientSocket*> m_mapClientConnect;
 	std::list<CClientSocket *> m_lstFreeClientConn;
+	std::list<sJobItem *> m_lstJobItem;
 
 	bool m_bShutDown;//是否关闭服务
 	int m_iClientNums;//客户端连接数
@@ -91,6 +115,9 @@ private:
 
 	//锁
 	CRITICAL_SECTION m_csConnectLock;
+	CRITICAL_SECTION m_csJob;
+public:
+	//CRITICAL_SECTION m_csEvent;
 };
 
 //每个客户端连接信息
@@ -112,7 +139,7 @@ public:
 	//开始接收数据
 	bool OnRecvBegin();
 	//接收完成函数
-	bool OnRecvCompleted(DWORD dwRecvCount);
+	int OnRecvCompleted(DWORD dwRecvCount);
 
 	//发送数据函数
 	int SendData(void* pData, UINT uBufLen, BYTE bMainID, BYTE bAssistantID, BYTE bHandleCode);
@@ -120,6 +147,8 @@ public:
 	bool OnSendBegin();
 	//发送完成
 	bool OnSendCompleted(DWORD dwSendCount);
+	//处理消息
+	void HandleMsg(void *pMsgBuf, unsigned short usBufLen);
 
 private:
 	SOCKET m_hSocket;//连接对应的socket
@@ -147,7 +176,10 @@ class yClientSocket
 public:
 	yClientSocket();
 	~yClientSocket();
-	static unsigned __stdcall WorkThreadProc(LPVOID pThreadParam);
+	//IO线程
+	static unsigned __stdcall IOThreadProc(LPVOID pThreadParam);
+	//工作线程
+	static unsigned __stdcall JobThreadProc(LPVOID pThreadParam);
 public:
 	//连接服务器
 	int ConnectServer(std::string strIp, unsigned short usPort, unsigned short usConnectNum);
@@ -155,16 +187,18 @@ public:
 	int DisConnectServer();
 	//发送数据
 	int SendData(void* pData, UINT uBufLen, BYTE bMainID, BYTE bAssistantID, BYTE bHandleCode);
-	//开始工作
-	int StartWork(unsigned short usThreadNum);
-
-protected:
+	//IO开始工作
+	int StartIOWork(unsigned short usThreadNum);
+	//开始任务处理
+	int StartJobWork(unsigned short usThreadNum);
 
 private:
 	bool m_bWorking;
 	int m_iWSAInitResult;
-	unsigned short m_usThreadNum;
+	unsigned short m_usIoThreadNum;
+	unsigned short m_usJobThreadNum;
 	HANDLE m_hThreadEvent;//批量发送事件
+	HANDLE m_hJobEvent;//批量发送事件
 	HANDLE m_hCompletionPort;//完成端口
 	CClientManager *m_pClientManager;
 };

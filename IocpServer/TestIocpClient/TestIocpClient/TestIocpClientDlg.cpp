@@ -127,8 +127,8 @@ BOOL CTestIocpClientDlg::OnInitDialog()
 	m_lstLog.InsertColumn(0, "日志信息", LVCFMT_LEFT, 750);
 	m_edServerIp.SetWindowText("127.0.0.1");
 	m_edServerPort.SetWindowText("6080");
-	m_edClientNum.SetWindowText("1");
-	m_edMsgContent.SetWindowText("test msg!");
+	m_edClientNum.SetWindowText("3000");
+	m_edMsgContent.SetWindowText("test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!");
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -201,10 +201,12 @@ void CTestIocpClientDlg::OnBnClickedButtonConnect()
 	int iNum = atoi(szNum);
 
 	CString strLog;
-	strLog.Format("ip=%s, port=%d, num=%d", strIp, iPort, iNum);
+	strLog.Format("ConnectServer ip=%s, port=%d, num=%d", strIp, iPort, iNum);
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 
-	m_pClientSocket->ConnectServer(strIp.GetBuffer(), iPort, iNum);
+	int iRet = m_pClientSocket->ConnectServer(strIp.GetBuffer(), iPort, iNum);
+	strLog.Format("ConnectServer iRet=%d", iRet);
+	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 }
 
 
@@ -212,6 +214,9 @@ void CTestIocpClientDlg::OnBnClickedButtonDisconnect()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	m_pClientSocket->DisConnectServer();
+	CString strLog;
+	strLog.Format("DisConnectServer!");
+	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 }
 
 
@@ -222,4 +227,7 @@ void CTestIocpClientDlg::OnBnClickedButtonSendmsg()
 	m_edMsgContent.GetWindowText(szMsg, MAX_SEND_SIZE);
 	UINT uLen = strlen(szMsg);
 	m_pClientSocket->SendData(szMsg, uLen, 100, 10, 1);
+	CString strLog;
+	strLog.Format("SendData szMsg=%s", szMsg);
+	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 }

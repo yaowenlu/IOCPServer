@@ -41,7 +41,7 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>../../WinZlog/Release/head;$(IncludePath)</IncludePath>
+    <IncludePath>../../WinZlog/Release/head;../../protoc-3.8.0/x64/include;$(IncludePath)</IncludePath>
     <LibraryPath>../../WinZlog/Release/lib;$(LibraryPath)</LibraryPath>
     <ExecutablePath>$(ExecutablePath)</ExecutablePath>
     <ReferencePath>../../WinZlog/Release/bin;$(ReferencePath)</ReferencePath>
@@ -72,6 +72,11 @@
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
+    <PostBuildEvent>
+      <Command>copy "$(SolutionDir)..\\WinZlog\\Release\\bin\\pthreadVC2.dll" "$(TargetDir)"
+copy "$(SolutionDir)..\\WinZlog\\Release\\bin\\pthreadVSE2.dll" "$(TargetDir)"
+copy "$(SolutionDir)..\\WinZlog\\Release\\bin\\zlog.dll" "$(TargetDir)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
