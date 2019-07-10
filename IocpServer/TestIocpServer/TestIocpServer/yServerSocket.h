@@ -11,7 +11,7 @@
 #include "MsgDefine.h"
 
 #define MAX_WORD_THREAD_NUMS 256	//最大工作线程数
-#define MAX_FREE_CLIENT_NUM	 1000	//最大空闲连接数
+#define MAX_FREE_CLIENT_NUM	 0	//最大空闲连接数
 #define MAX_WAIT_JOB_COUNT	10000	//最大等待工作数，超出将不会再处理
 //缓存定义
 #define SED_SIZE				60000							//发送缓冲区大小
@@ -71,7 +71,7 @@ struct sThreadData
 struct sJobItem
 {
 	__int64 i64Index;//客户端索引
-	unsigned short usBufLen;
+	DWORD dwBufLen;
 	BYTE *pJobBuff;
 };
 
@@ -89,7 +89,7 @@ public:
 	//关闭所有连接
 	bool CloseAllConnection();
 	//发送数据
-	int SendData(unsigned __int64 i64Index, void* pData, UINT uBufLen, BYTE bMainID, BYTE bAssistantID, BYTE bHandleCode);
+	int SendData(unsigned __int64 i64Index, void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode);
 	//
 	bool GetIsShutDown()
 	{
@@ -143,13 +143,13 @@ public:
 	int OnRecvCompleted(DWORD dwRecvCount);
 
 	//发送数据函数
-	int SendData(void* pData, UINT uBufLen, BYTE bMainID, BYTE bAssistantID, BYTE bHandleCode);
+	int SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode);
 	//开始发送
 	bool OnSendBegin();
 	//发送完成
 	bool OnSendCompleted(DWORD dwSendCount);
 	//处理消息
-	void HandleMsg(void *pMsgBuf, unsigned short usBufLen);
+	void HandleMsg(void *pMsgBuf, DWORD dwBufLen);
 
 private:
 	SOCKET m_hSocket;//连接对应的socket
@@ -185,13 +185,13 @@ public:
 	static unsigned __stdcall JobThreadProc(LPVOID pThreadParam);
 public:
 	//开始服务
-	int StartService(int iPort, unsigned short usIoThreadNum, unsigned short usJobThreadNum);
+	int StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThreadNum);
 	//停止服务
 	int StopService();
 	//IO开始工作
-	int StartIOWork(unsigned short usThreadNum);
+	int StartIOWork(DWORD dwThreadNum);
 	//开始任务处理
-	int StartJobWork(unsigned short usThreadNum);
+	int StartJobWork(DWORD dwThreadNum);
 	//开始监听
 	int StartListen(int iPort);
 
@@ -200,8 +200,8 @@ protected:
 private:
 	bool m_bWorking;
 	int m_iWSAInitResult;
-	unsigned short m_usIoThreadNum;
-	unsigned short m_usJobThreadNum;
+	DWORD m_dwIoThreadNum;
+	DWORD m_dwJobThreadNum;
 	HANDLE m_hThreadEvent;//批量发送事件
 	HANDLE m_hJobEvent;//批量发送事件
 	HANDLE m_hCompletionPort;//完成端口

@@ -4,13 +4,13 @@
 #include "stdafx.h"
 
 ///网络数据包结构头
-struct NetMessageHead
+struct NetMsgHead
 {
-	DWORD	uMessageSize;		///数据包大小
-	DWORD	bMainID;			///处理主类型
-	DWORD	bAssistantID;		///辅助处理类型 ID
-	DWORD	bHandleCode;		///数据包处理代码
-	DWORD	bReserve;			///保留字段
+	DWORD	dwMsgSize;		//数据包大小
+	DWORD	dwMainID;		//消息主ID
+	DWORD	dwAssID;		//消息辅ID
+	DWORD	dwHandleCode;	//消息处理代码
+	DWORD	dwReserve;		//保留字段
 };
 
 #endif
