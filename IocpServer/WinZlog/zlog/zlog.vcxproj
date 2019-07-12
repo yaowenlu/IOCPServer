@@ -136,7 +136,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <Optimization>MaxSpeed</Optimization>
+      <Optimization>Disabled</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -203,7 +203,6 @@ copy $(OutDir)$(TargetName)$(TargetExt) $(SolutionDir)\bin\x64</Command>
     <ClInclude Include="src\spec.h" />
     <ClInclude Include="src\syslog.h" />
     <ClInclude Include="src\thread.h" />
-    <ClInclude Include="src\thread_list.h" />
     <ClInclude Include="src\zc_arraylist.h" />
     <ClInclude Include="src\zc_defs.h" />
     <ClInclude Include="src\zc_hashtable.h" />
@@ -230,7 +229,6 @@ copy $(OutDir)$(TargetName)$(TargetExt) $(SolutionDir)\bin\x64</Command>
     <ClCompile Include="src\spec.c" />
     <ClCompile Include="src\syslog-client.c" />
     <ClCompile Include="src\thread.c" />
-    <ClCompile Include="src\thread_list.c" />
     <ClCompile Include="src\win_compat.c" />
     <ClCompile Include="src\zc_arraylist.c" />
     <ClCompile Include="src\zc_hashtable.c" />

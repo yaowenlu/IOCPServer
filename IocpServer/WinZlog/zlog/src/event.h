@@ -3,18 +3,7 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * The zlog Library is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * The zlog Library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
+ * Licensed under the LGPL v2.1, see the file COPYING in base directory.
  */
 
 #ifndef __zlog_event_h
@@ -47,6 +36,12 @@ typedef enum {
 	ZLOG_HEX = 1,
 } zlog_event_cmd;
 
+typedef struct zlog_time_cache_s {
+	char str[MAXLEN_CFG_LINE + 1];
+	size_t len;
+	time_t sec;
+} zlog_time_cache_t;
+
 typedef struct {
 	char *category_name;
 	size_t category_name_len;
@@ -67,13 +62,12 @@ typedef struct {
 	zlog_event_cmd generate_cmd;
 
 	struct timeval time_stamp;
-	time_t last_sec;
-	struct tm local_time;	
 
-	char D_time_str[10 + 1 + 8 + 1]; /* YYYY-mm-dd HH:mm:ss */
-	char time_str[MAXLEN_CFG_LINE + 1];
-	size_t time_str_len;
-	char *last_time_fmt;
+	time_t time_local_sec;
+	struct tm time_local;
+
+	zlog_time_cache_t *time_caches;
+	int time_cache_count;
 
 	pid_t pid;
 	pid_t last_pid;
@@ -86,9 +80,16 @@ typedef struct {
 
 	char tid_hex_str[30 + 1];
 	size_t tid_hex_str_len;
+
+#if defined __linux__ || __APPLE__
+	pid_t ktid;
+	char ktid_str[30+1];
+	size_t ktid_str_len;
+#endif
 } zlog_event_t;
 
-zlog_event_t *zlog_event_new(void);
+
+zlog_event_t *zlog_event_new(int time_cache_count);
 void zlog_event_del(zlog_event_t * a_event);
 void zlog_event_profile(zlog_event_t * a_event, int flag);
 

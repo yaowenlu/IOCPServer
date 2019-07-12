@@ -3,18 +3,7 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * The zlog Library is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * The zlog Library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
+ * Licensed under the LGPL v2.1, see the file COPYING in base directory.
  */
 
 #include <stdio.h>
@@ -53,7 +42,7 @@ typedef struct {
 
 void zlog_rotater_profile(zlog_rotater_t * a_rotater, int flag)
 {
-	zc_assert(a_rotater,0);
+	zc_assert(a_rotater,);
 	zc_profile(flag, "--rotater[%p][%p,%s,%d][%s,%s,%s,%ld,%ld,%d,%d,%d]--",
 		a_rotater,
 
@@ -101,8 +90,8 @@ void zlog_rotater_del(zlog_rotater_t *a_rotater)
 		zc_error("pthread_mutex_destroy fail, errno[%d]", errno);
 	}
 
-	free(a_rotater);
 	zc_debug("zlog_rotater_del[%p]", a_rotater);
+    free(a_rotater);
 	return;
 }
 
@@ -192,7 +181,6 @@ static zlog_file_t *zlog_file_check_new(zlog_rotater_t * a_rotater, const char *
 {
 	int nwrite;
 	int nread;
-	int nscan;
 	zlog_file_t *a_file;
 
 	/* base_path will not be in list */
@@ -217,8 +205,8 @@ static zlog_file_t *zlog_file_check_new(zlog_rotater_t * a_rotater, const char *
 		goto err;
 	}
 
-	nscan = sscanf(a_file->path + a_rotater->num_start_len, "%d%n", &(a_file->index), &(nread));
-	if (nscan == 0) nread = 0; /* if nothing is scaned, nread will be a random number */
+	nread = 0;
+	sscanf(a_file->path + a_rotater->num_start_len, "%d%n", &(a_file->index), &(nread));
 
 	if (a_rotater->num_width != 0) {
 		if (nread < a_rotater->num_width) {
@@ -236,12 +224,7 @@ err:
 
 static int zlog_file_cmp(zlog_file_t * a_file_1, zlog_file_t * a_file_2)
 {
-	if (a_file_1->index - a_file_2->index > 0)
-		return 1;
-	else if (a_file_1->index - a_file_2->index < 0)
-		return -1;
-	else
-		return 0;
+	return (a_file_1->index > a_file_2->index);
 }
 
 static int zlog_rotater_add_archive_files(zlog_rotater_t * a_rotater)
@@ -442,6 +425,7 @@ static int zlog_rotater_parse_archive_path(zlog_rotater_t * a_rotater)
 			return -1;
 		}
 
+		nread = 0;
 		sscanf(p, "#%d%n", &(a_rotater->num_width), &nread);
 		if (nread == 0) nread = 1;
 		if (*(p+nread) == 'r') {
@@ -610,8 +594,7 @@ static int zlog_rotater_unlock(zlog_rotater_t *a_rotater)
 
 int zlog_rotater_rotate(zlog_rotater_t *a_rotater,
 		char *base_path, size_t msg_len,
-		char *archive_path, long archive_max_size, int archive_max_count,
-		int *reopen_fd, int reopen_flags, unsigned int reopen_perms)
+		char *archive_path, long archive_max_size, int archive_max_count)
 {
 	int rc = 0;
 	struct zlog_stat info;
@@ -622,9 +605,6 @@ int zlog_rotater_rotate(zlog_rotater_t *a_rotater,
 		zc_warn("zlog_rotater_trylock fail, maybe lock by other process or threads");
 		return 0;
 	}
-
-	/* just one thread in one process in the global system run code here, 
-	 * so it is safe to reopen the fd of file */
 
 	if (stat(base_path, &info)) {
 		rc = -1;
@@ -648,19 +628,6 @@ int zlog_rotater_rotate(zlog_rotater_t *a_rotater,
 	} /* else if (rc == 0) */
 
 	//zc_debug("zlog_rotater_file_ls_mv success");
-
-	if (reopen_fd == NULL) goto exit;
-
-	if (zlogclose(*reopen_fd)) {
-		rc = -1;
-		zc_error("close fail, errno[%d]", errno);
-	} /* still try open again */
-
-	if ((*reopen_fd = zlogopen(base_path, reopen_flags, reopen_perms)) < 0) {
-		rc = -1;
-		zc_error("open fail, errno[%d]", errno);
-		goto exit;
-	}
 
 exit:
 	/* unlock file */

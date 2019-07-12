@@ -3,18 +3,7 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * The zlog Library is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * The zlog Library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
+ * Licensed under the LGPL v2.1, see the file COPYING in base directory.
  */
 
 /**
@@ -25,15 +14,15 @@
 #ifndef __zlog_rule_h
 #define __zlog_rule_h
 
-
+#include <stdio.h>
+#include <pthread.h>
 
 #include "zc_defs.h"
 #include "format.h"
 #include "thread.h"
 #include "rotater.h"
 #include "record.h"
-#include <stdio.h>
-#include <pthread.h>
+
 typedef struct zlog_rule_s zlog_rule_t;
 
 typedef int (*zlog_rule_output_fn) (zlog_rule_t * a_rule, zlog_thread_t * a_thread);
@@ -56,6 +45,8 @@ struct zlog_rule_s {
 	char file_path[MAXLEN_PATH + 1];
 	zc_arraylist_t *dynamic_specs;
 	int static_fd;
+	dev_t static_dev;
+	ino_t static_ino;
 
 	long archive_max_size;
 	int archive_max_count;
@@ -79,12 +70,13 @@ struct zlog_rule_s {
 	zlog_record_fn record_func;
 };
 
-zlog_rule_t *zlog_rule_new(char *line,
+zlog_rule_t *zlog_rule_new(char * line,
 		zc_arraylist_t * levels,
 		zlog_format_t * default_format,
 		zc_arraylist_t * formats,
 		unsigned int file_perms,
-		size_t fsync_period);
+		size_t fsync_period,
+		int * time_cache_count);
 
 void zlog_rule_del(zlog_rule_t * a_rule);
 void zlog_rule_profile(zlog_rule_t * a_rule, int flag);

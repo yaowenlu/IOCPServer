@@ -26,7 +26,8 @@ int main(int argc, char** argv)
 	zlog_category_t *zc;
 
 	//rc = zlog_init(".\\test_hello.conf");
-	rc = zlog_init("");
+	char szPath[260] = "C:\\Users\\Administrator\\Desktop\\IOCPServer\\IocpServer\\WinZlog\\zlog/conf/zlog_conf.conf";
+	rc = zlog_init(szPath);
 	
 	if (rc) {
 		printf("init failed\n");
