@@ -49,6 +49,7 @@ CClientSocket* CClientManager::ActiveOneConnection(SOCKET hSocket)
 	if(nullptr == pClient)
 	{
 		::LeaveCriticalSection(&m_csConnectLock);
+		dzlog_error("new CClientSocket fail");
 		return nullptr;
 	}
 	pClient->SetSocket(hSocket);
@@ -206,6 +207,14 @@ bool CClientManager::AddJob(sJobItem *pJob)
 		}
 		else
 		{
+			//ÊÍ·ÅÄÚ´æ
+			if(nullptr != pJob->pJobBuff)
+			{
+				delete [] pJob->pJobBuff;
+				pJob->pJobBuff = nullptr;
+				delete pJob;
+				pJob = nullptr;
+			}
 			dzlog_warn("AddJob failed, too much job! i64Index=%lld", pJob->i64Index);
 		}
 		LeaveCriticalSection(&m_csJob);

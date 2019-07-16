@@ -3,18 +3,7 @@
  *
  * Copyright (C) 2011 by Hardy Simpson <HardySimpson1984@gmail.com>
  *
- * The zlog Library is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * The zlog Library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with the zlog Library. If not, see <http://www.gnu.org/licenses/>.
+ * Licensed under the LGPL v2.1, see the file COPYING in base directory.
  */
 
 #include <stdlib.h>
@@ -40,7 +29,7 @@ zc_arraylist_t *zc_arraylist_new(zc_arraylist_del_fn del)
 
 	/* this could be NULL */
 	a_list->del = del;
-	a_list->array = (void **)calloc(sizeof(void *), a_list->size);
+	a_list->array = (void **)calloc(a_list->size, sizeof(void *));
 	if (!a_list->array) {
 		zc_error("calloc fail, errno[%d]", errno);
 		free(a_list);
@@ -72,17 +61,17 @@ static int zc_arraylist_expand_inner(zc_arraylist_t * a_list, int max)
 {
 	void *tmp;
 	int new_size;
+	int diff_size;
 
 	new_size = zc_max(a_list->size * 2, max);
 	tmp = realloc(a_list->array, new_size * sizeof(void *));
 	if (!tmp) {
 		zc_error("realloc fail, errno[%d]", errno);
-		free(a_list->array);
 		return -1;
 	}
 	a_list->array = (void **)tmp;
-	memset(a_list->array + a_list->size, 0x00,
-	       (new_size - a_list->size) * sizeof(void *));
+	diff_size = new_size - a_list->size;
+	if (diff_size) memset(a_list->array + a_list->size, 0x00, diff_size * sizeof(void *));
 	a_list->size = new_size;
 	return 0;
 }

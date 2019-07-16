@@ -106,7 +106,6 @@ static int zlog_init_inner(const char *confpath)
 		goto err;
 	}
 
-
 	return 0;
 err:
 	zlog_fini_inner();
