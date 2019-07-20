@@ -16,6 +16,7 @@ CClientManager::CClientManager()
 	::InitializeCriticalSection(&m_csConnectLock);
 	::InitializeCriticalSection(&m_csJob);
 	//::InitializeCriticalSection(&m_csEvent);
+	::InitializeCriticalSection(&m_csTimer);
 }
 
 CClientManager::~CClientManager()
@@ -23,6 +24,7 @@ CClientManager::~CClientManager()
 	::DeleteCriticalSection(&m_csConnectLock);
 	::DeleteCriticalSection(&m_csJob);
 	//::DeleteCriticalSection(&m_csEvent);
+	::DeleteCriticalSection(&m_csTimer);
 }
 
 //收到一个连接
@@ -70,7 +72,14 @@ CClientSocket* CClientManager::ActiveOneConnection(SOCKET hSocket)
 ***************************/
 bool CClientManager::CloseOneConnection(CClientSocket *pClient, unsigned __int64 i64Index)
 {
-	dzlog_info("CloseOneConnection begin i64Index=%lld", i64Index);
+	if(nullptr != pClient)
+	{
+		dzlog_info("CloseOneConnection begin i64Index=%lld", pClient->GetIndex());
+	}
+	else
+	{
+		dzlog_info("CloseOneConnection begin i64Index=%lld", i64Index);
+	}
 	//效验数据
 	if (0 == i64Index && nullptr != pClient) 
 	{
@@ -82,17 +91,24 @@ bool CClientManager::CloseOneConnection(CClientSocket *pClient, unsigned __int64
 	}
 
 	::EnterCriticalSection(&m_csConnectLock);
+	ReleaseOneConnection(i64Index);
+	dzlog_info("CloseOneConnection end i64Index=%lld, m_iClientNums=%d", i64Index, m_iClientNums);
+	::LeaveCriticalSection(&m_csConnectLock);
+	return true;
+}
+
+//释放连接资源
+void CClientManager::ReleaseOneConnection(unsigned __int64 i64Index, bool bErase)
+{
 	std::map<unsigned __int64, CClientSocket*>::iterator iterFind = m_mapClientConnect.find(i64Index);
 	if(iterFind == m_mapClientConnect.end())
 	{
-		::LeaveCriticalSection(&m_csConnectLock);
-		return false;
+		return;
 	}
-	
+
 	//最多保留MAX_FREE_CLIENT_NUM个空闲资源备用
 	if(m_lstFreeClientConn.size() < MAX_FREE_CLIENT_NUM)
 	{
-		//iterFind->second跟pClient是同一个指针
 		iterFind->second->CloseSocket();
 		m_lstFreeClientConn.push_back(iterFind->second);
 	}
@@ -101,11 +117,12 @@ bool CClientManager::CloseOneConnection(CClientSocket *pClient, unsigned __int64
 		delete iterFind->second;//析构的时候会自动关闭连接
 		iterFind->second = nullptr;
 	}
-	m_mapClientConnect.erase(iterFind);
+	if(bErase)
+	{
+		m_mapClientConnect.erase(iterFind);
+	}
 	--m_iClientNums;
-	dzlog_info("CloseOneConnection end i64Index=%lld, m_iClientNums=%d", i64Index, m_iClientNums);
-	::LeaveCriticalSection(&m_csConnectLock);
-	return true;
+	return;
 }
 
 //关闭所有连接
@@ -169,11 +186,25 @@ int CClientManager::SendData(unsigned __int64 i64Index, void* pData, DWORD dwDat
 	if(0 == i64Index)
 	{
 		std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.begin();
-		for(;iterClient != m_mapClientConnect.end(); iterClient++)
+		for(;iterClient != m_mapClientConnect.end();)
 		{
 			if(nullptr != iterClient->second)
 			{
-				iterClient->second->SendData(pData, dwDataLen, dwMainID, dwAssID, dwHandleCode);
+				//客户端长时间没响应
+				if(iterClient->second->GetTimeOutCount() > MAX_CONNECT_TIME_OUT_COUNT)
+				{
+					ReleaseOneConnection(iterClient->first, false);
+					iterClient = m_mapClientConnect.erase(iterClient);
+				}
+				else
+				{
+					iterClient->second->SendData(pData, dwDataLen, dwMainID, dwAssID, dwHandleCode);
+					++iterClient;
+				}
+			}
+			else
+			{
+				iterClient = m_mapClientConnect.erase(iterClient);
 			}
 		}
 	}
@@ -185,7 +216,15 @@ int CClientManager::SendData(unsigned __int64 i64Index, void* pData, DWORD dwDat
 		{
 			if(nullptr != iterClient->second)
 			{
-				iterClient->second->SendData(pData, dwDataLen, dwMainID, dwAssID, dwHandleCode);
+				//客户端长时间没响应
+				if(iterClient->second->GetTimeOutCount() > MAX_CONNECT_TIME_OUT_COUNT)
+				{
+					ReleaseOneConnection(iterClient->first);
+				}
+				else
+				{
+					iterClient->second->SendData(pData, dwDataLen, dwMainID, dwAssID, dwHandleCode);
+				}
 			}
 		}
 	}
@@ -207,15 +246,15 @@ bool CClientManager::AddJob(sJobItem *pJob)
 		}
 		else
 		{
+			dzlog_warn("AddJob failed, too much job! i64Index=%lld", pJob->i64Index);
 			//释放内存
 			if(nullptr != pJob->pJobBuff)
 			{
 				delete [] pJob->pJobBuff;
 				pJob->pJobBuff = nullptr;
-				delete pJob;
-				pJob = nullptr;
 			}
-			dzlog_warn("AddJob failed, too much job! i64Index=%lld", pJob->i64Index);
+			delete pJob;
+			pJob = nullptr;
 		}
 		LeaveCriticalSection(&m_csJob);
 	}
@@ -257,6 +296,95 @@ bool CClientManager::ProcessJob()
 	return true;
 }
 
+//定时器
+void CClientManager::OnBaseTimer()
+{
+	EnterCriticalSection(&m_csTimer);
+	std::map<UINT, sTimer>::iterator itTimer = m_mapAllTimer.begin();
+	for(;itTimer != m_mapAllTimer.end();itTimer++)
+	{
+		DWORD dwNowTime = GetTickCount();
+		if(dwNowTime > itTimer->second.dwEnterTime)
+		{
+			OnTimer(itTimer->first);
+			//循环命中
+			if((-1 == itTimer->second.iTimerCount) || (--itTimer->second.iTimerCount > 0))
+			{
+				itTimer->second.dwEnterTime += itTimer->second.dwDelayTime;
+			}
+			else
+			{
+				itTimer = m_mapAllTimer.erase(itTimer);
+			}
+		}
+	}
+	LeaveCriticalSection(&m_csTimer);
+	return;
+}
+
+//设置定时器
+int CClientManager::SetTimer(DWORD dwTimerID, DWORD dwDelayTime, int iTimerCount)
+{
+	dzlog_info("SetTimer dwTimerID=%d, dwDelayTime=%d, iTimerCount=%d", dwTimerID, dwDelayTime, iTimerCount);
+	EnterCriticalSection(&m_csTimer);
+	std::map<UINT, sTimer>::iterator itTimer = m_mapAllTimer.find(dwTimerID);
+	if(itTimer != m_mapAllTimer.end())
+	{
+		dzlog_warn("SetTimer dwTimerID=%d exist, update it!", dwTimerID);
+		itTimer->second.dwBeginTime = GetTickCount();
+		itTimer->second.dwDelayTime = dwDelayTime;
+		itTimer->second.dwEnterTime = itTimer->second.dwBeginTime + itTimer->second.dwDelayTime;
+		itTimer->second.iTimerCount = iTimerCount;
+	}
+	else
+	{
+		sTimer curTimer;
+		curTimer.dwTimerID = dwTimerID;
+		curTimer.iTimerCount = iTimerCount;
+		curTimer.dwBeginTime = GetTickCount();
+		curTimer.dwDelayTime = dwDelayTime;	
+		curTimer.dwEnterTime = curTimer.dwBeginTime + curTimer.dwDelayTime;
+		m_mapAllTimer[dwTimerID] = curTimer;
+	}
+	LeaveCriticalSection(&m_csTimer);
+	return 0;
+}
+
+//触发定时器
+int CClientManager::OnTimer(DWORD dwTimerID)
+{
+	switch(dwTimerID)
+	{
+	case TIMER_ID_KEEP_ALIVE:
+		{
+			//发送心跳数据
+			SendData(0, nullptr, 0, MAIN_KEEP_ALIVE, ASS_KEEP_ALIVE, 0);
+			break;
+		}
+	default:
+		break;
+	}
+	return 0;
+}
+
+//删除定时器
+int CClientManager::KillTimer(DWORD dwTimerID)
+{
+	dzlog_info("KillTimer dwTimerID=%d", dwTimerID);
+	EnterCriticalSection(&m_csTimer);
+	std::map<UINT, sTimer>::iterator itTimer = m_mapAllTimer.find(dwTimerID);
+	if(itTimer == m_mapAllTimer.end())
+	{
+		dzlog_warn("KillTimer dwTimerID=%d not exist!", dwTimerID);
+	}
+	else
+	{
+		m_mapAllTimer.erase(itTimer);
+	}
+	LeaveCriticalSection(&m_csTimer);
+	return 0;
+}
+
 
 /*********************************************************
 *********************************************************
@@ -288,6 +416,7 @@ void CClientSocket::InitData()
 	memset(&m_RecvOverData,0,sizeof(m_RecvOverData));
 	m_SendOverData.uOperationType=SOCKET_SND;
 	m_RecvOverData.uOperationType=SOCKET_REV;
+	m_dwTimeOutCount = 0;
 }
 
 //关闭连接
@@ -353,7 +482,7 @@ int CClientSocket::OnRecvCompleted(DWORD dwRecvCount)
 			//非法数据包
 			if(!pMsgHead || pMsgHead->dwMsgSize < sizeof(NetMsgHead))
 			{
-				dzlog_error("msg null or size illegal!");
+				dzlog_error("msg null or size illegal! pMsgHead=%x", pMsgHead);
 				CloseSocket();
 				LeaveCriticalSection(&m_csRecvLock);
 				return iNewJobCount;
@@ -424,6 +553,10 @@ int CClientSocket::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD 
 			CopyMemory(pNetHead+1, pData, dwDataLen);
 		m_dwSendBuffLen += uSendSize;
 		int iFinishSize = OnSendBegin()?dwDataLen:0;
+		if(MAIN_KEEP_ALIVE == dwMainID && ASS_KEEP_ALIVE == dwAssID)
+		{
+			++m_dwTimeOutCount;
+		}
 		LeaveCriticalSection(&m_csSendLock);
 		return iFinishSize;
 	}
@@ -461,7 +594,7 @@ bool CClientSocket::OnSendBegin()
 //发送完成函数
 bool CClientSocket::OnSendCompleted(DWORD dwSendCount)
 {
-	bool bSucc = false;
+	bool bSucc = true;
 	EnterCriticalSection(&m_csSendLock);
 	//处理数据
 	if (dwSendCount > 0)
@@ -485,6 +618,7 @@ bool CClientSocket::OnSendCompleted(DWORD dwSendCount)
 //处理消息
 void CClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 {
+	m_dwTimeOutCount = 0;
 	if(nullptr == pMsgBuf || dwBufLen < sizeof(NetMsgHead))
 	{
 		dzlog_error("HandleMsg m_i64Index=%lld, pMsgBuf=%x, dwBufLen=%d", m_i64Index, pMsgBuf, dwBufLen);
@@ -523,6 +657,7 @@ yServerSocket::yServerSocket()
 	m_dwJobThreadNum = 0;
 	m_hThreadEvent = NULL;
 	m_hJobEvent = NULL;
+	m_hTimerEvent = NULL;
 	m_hCompletionPort = NULL;
 	m_hListenThread = NULL;
 	m_lsSocket = INVALID_SOCKET;
@@ -542,6 +677,9 @@ int yServerSocket::StopService()
 {
 	dzlog_debug("yServerSocket StopService!");
 	m_bWorking = false;
+	//删除心跳定时器
+	m_pClientManager->KillTimer(TIMER_ID_KEEP_ALIVE);
+
 	if(INVALID_SOCKET != m_lsSocket)
 	{
 		closesocket(m_lsSocket);
@@ -582,6 +720,10 @@ int yServerSocket::StopService()
 	::WaitForSingleObject(m_hThreadEvent, TIME_OUT);
 	::ResetEvent(m_hThreadEvent);
 	m_dwJobThreadNum = 0;
+	//关闭定时器线程
+	SetEvent(m_hTimerEvent);
+	::WaitForSingleObject(m_hThreadEvent, TIME_OUT);
+	::ResetEvent(m_hThreadEvent);
 
 	//关闭事件
 	if (NULL != m_hThreadEvent)
@@ -593,6 +735,11 @@ int yServerSocket::StopService()
 	{
 		::CloseHandle(m_hJobEvent);
 		m_hJobEvent = NULL;
+	}
+	if (NULL != m_hTimerEvent)
+	{
+		::CloseHandle(m_hTimerEvent);
+		m_hTimerEvent = NULL;
 	}
 
 	if(NO_ERROR == m_iWSAInitResult)
@@ -664,6 +811,13 @@ int yServerSocket::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThrea
 		return CODE_SERVICE_CREATE_EVENT_ERROR;
 	}
 
+	m_hTimerEvent = ::CreateEvent(NULL,TRUE,false,NULL);
+	if(NULL == m_hTimerEvent)
+	{
+		StopService();
+		return CODE_SERVICE_CREATE_EVENT_ERROR;
+	}
+
 	m_hCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0 );
 	if(NULL == m_hCompletionPort)
 	{
@@ -676,7 +830,7 @@ int yServerSocket::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThrea
 	if(0 != iRet)
 	{
 		StopService();
-		return CODE_SERVICE_WORK_FAILED;
+		return CODE_SERVICE_IO_FAILED;
 	}
 
 	//启动工作线程
@@ -687,12 +841,23 @@ int yServerSocket::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThrea
 		return CODE_SERVICE_WORK_FAILED;
 	}
 
+	//启动监听
 	iRet = StartListen(iPort);
 	if(0 != iRet)
 	{
 		StopService();
 		return CODE_SERVICE_LISTEN_FAILED;
 	}
+
+	//自动定时器
+	iRet = StartTimer();
+	if(0 != iRet)
+	{
+		StopService();
+		return CODE_SERVICE_TIMER_FAILED;
+	}
+	//启动心跳定时器
+	m_pClientManager->SetTimer(TIMER_ID_KEEP_ALIVE, TIME_DEALY_KEEP_ALIVE, -1);
 
 	m_bWorking = true;
 	return CODE_SUCC;
@@ -701,7 +866,7 @@ int yServerSocket::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThrea
 //开始工作
 int yServerSocket::StartIOWork(DWORD dwThreadNum)
 {
-	dzlog_debug("yServerSocket StartIOWork dwThreadNum=%d!", dwThreadNum);
+	dzlog_info("yServerSocket StartIOWork dwThreadNum=%d!", dwThreadNum);
 	if(dwThreadNum <= 0 || dwThreadNum >= MAX_WORD_THREAD_NUMS)
 	{
 		return -1;
@@ -736,7 +901,7 @@ int yServerSocket::StartIOWork(DWORD dwThreadNum)
 //开始工作
 int yServerSocket::StartJobWork(DWORD dwThreadNum)
 {
-	dzlog_debug("yServerSocket StartJobWork dwThreadNum=%d!", dwThreadNum);
+	dzlog_info("yServerSocket StartJobWork dwThreadNum=%d!", dwThreadNum);
 	if(dwThreadNum <= 0 || dwThreadNum >= MAX_WORD_THREAD_NUMS)
 	{
 		return -1;
@@ -845,7 +1010,8 @@ unsigned __stdcall yServerSocket::IOThreadProc(LPVOID pParam)
 			//INFINITE条件下不可能WAIT_TIMEOUT
 			if(dwIoError != WAIT_TIMEOUT)
 			{
-				if(nullptr != pClient && ERROR_NETNAME_DELETED == dwIoError)
+				//(ERROR_NETNAME_DELETED == dwIoError || WSAECONNRESET == dwIoError || WSAECONNABORTED == dwIoError)
+				if(nullptr != pClient)
 				{
 					pClientManager->CloseOneConnection(pClient, 0);
 					continue;
@@ -868,26 +1034,21 @@ unsigned __stdcall yServerSocket::IOThreadProc(LPVOID pParam)
 			return 0;
 		}
 
-		//客户端断开连接了
-		if ((0 == dwTransferred) && (SOCKET_REV_FINISH == pOverLapped->uOperationType))
-		{
-			pClientManager->CloseOneConnection(pClient, pOverLapped->i64HandleID);
-			continue;
-		}
-
+		bool bSucc = true;
 		switch (pOverLapped->uOperationType)
 		{
 			//SOCKET 数据读取
 		case SOCKET_REV:
 			{
-				pClient->OnRecvBegin();
+				bSucc = pClient->OnRecvBegin();
 				break;
 			}
 		case SOCKET_REV_FINISH:
 			{
 				//继续接收数据
-				//有接收到新的job
-				if(pClient->OnRecvBegin() && (pClient->OnRecvCompleted(dwTransferred) > 0))
+				bSucc = pClient->OnRecvBegin();
+				//有新job
+				if(bSucc && pClient->OnRecvCompleted(dwTransferred) > 0)
 				{
 					//通知工作线程
 					//EnterCriticalSection(&pClientManager->m_csEvent);
@@ -899,16 +1060,22 @@ unsigned __stdcall yServerSocket::IOThreadProc(LPVOID pParam)
 			//SOCKET 数据发送
 		case SOCKET_SND:
 			{
-				pClient->OnSendBegin();
+				bSucc = pClient->OnSendBegin();
 				break;
 			}
 		case SOCKET_SND_FINISH:
 			{
-				pClient->OnSendCompleted(dwTransferred);
+				bSucc = pClient->OnSendCompleted(dwTransferred);
 				break;
 			}
 		default:
+			dzlog_warn("unknow uOperationType=%d i64Index=%lld!", pOverLapped->uOperationType, pOverLapped->i64HandleID);
 			break;
+		}
+		
+		if(!bSucc)
+		{
+			dzlog_error("uOperationType=%d return error!", pOverLapped->uOperationType);
 		}
 	}
 	dzlog_info("IOThreadProc exit! iThreadIndex=%d", iThreadIndex);
@@ -1012,6 +1179,59 @@ unsigned __stdcall yServerSocket::JobThreadProc(LPVOID pParam)
 		}
 	}
 	dzlog_info("JobThreadProc exit! iThreadIndex=%d", iThreadIndex);
+	SetEvent(hThreadEvent);
+	return 0;
+}
+
+//开始定时器
+int yServerSocket::StartTimer()
+{
+	dzlog_info("yServerSocket StartTimer!");
+	HANDLE hThreadHandle = NULL;
+	UINT uThreadID = 0;
+	sThreadData threadData;
+	threadData.hCompletionPort = NULL;
+	threadData.hThreadEvent = m_hThreadEvent;
+	threadData.hJobEvent = m_hTimerEvent;
+	threadData.hLsSocket = NULL;
+	threadData.pSocketManage = m_pClientManager;
+	hThreadHandle = (HANDLE)::_beginthreadex(nullptr, 0, TimerThreadProc, &threadData, 0, &uThreadID);
+	if(NULL == hThreadHandle)
+	{
+		return -1;
+	}
+	//逐个创建线程
+	::WaitForSingleObject(m_hThreadEvent, INFINITE);
+	::ResetEvent(m_hThreadEvent);
+	::CloseHandle(hThreadHandle);
+	return 0;
+}
+
+unsigned __stdcall yServerSocket::TimerThreadProc(LPVOID pParam)
+{
+	sThreadData* pThreadData = reinterpret_cast<sThreadData*>(pParam);
+	if(nullptr == pThreadData)
+	{
+		return 0;
+	}
+	CClientManager* pClientManager = pThreadData->pSocketManage;
+	HANDLE hTimerEvent = pThreadData->hJobEvent;
+	HANDLE hThreadEvent = pThreadData->hThreadEvent;
+	int iThreadIndex = pThreadData->iThreadIndex;
+	//线程数据读取完成
+	SetEvent(hThreadEvent);
+	if(!pClientManager)
+	{
+		return 0;
+	}
+
+	while (true)
+	{
+		WaitForSingleObject(hTimerEvent, 10);
+		ResetEvent(hTimerEvent);
+		pClientManager->OnBaseTimer();
+	}
+	dzlog_info("TimerThreadProc exit!");
 	SetEvent(hThreadEvent);
 	return 0;
 }

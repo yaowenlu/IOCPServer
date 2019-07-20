@@ -19,6 +19,13 @@
 #define TIME_OUT				3000			//超时时间
 #define MAX_SEND_SIZE			4000			//单条消息最多发送的数据大小
 
+#define MAX_CONNECT_TIME_OUT_COUNT		5				//超时次数，超过此次数时会强制关闭并释放连接
+//定时器ID定义
+#define TIMER_ID_KEEP_ALIVE				100				//心跳定时器
+#define TIMER_ID_CHECK_CLOSE_SOCKET		101				//检测客户端
+
+//定时时间间隔
+#define TIME_DEALY_KEEP_ALIVE			10000			//心跳检测间隔
 
 class CClientSocket;
 class CClientManager;
@@ -32,8 +39,10 @@ enum
 	CODE_SERVICE_PARAM_ERROR,			//参数错误
 	CODE_SERVICE_CREATE_EVENT_ERROR,	//创建完成端口错误
 	CODE_SERVICE_CREATE_IOCP_ERROR,		//创建完成端口错误
+	CODE_SERVICE_IO_FAILED,				//启动IO线程失败
 	CODE_SERVICE_WORK_FAILED,			//启动工作线程失败
 	CODE_SERVICE_LISTEN_FAILED,			//监听失败
+	CODE_SERVICE_TIMER_FAILED,			//启动定时器线程失败
 	CODE_SERVICE_UNKNOW_ERROR=100		//未知错误
 };
 
@@ -75,6 +84,20 @@ struct sJobItem
 	BYTE *pJobBuff;
 };
 
+//定时器结构
+struct sTimer
+{
+	DWORD dwTimerID;//定时器ID
+	int iTimerCount;//命中次数
+	DWORD dwBeginTime;//定时器起始时间
+	DWORD dwDelayTime;//定时器延时时间
+	DWORD dwEnterTime;//定时器命中时间
+	sTimer()
+	{
+		memset(this, 0, sizeof(*this));
+	}
+};
+
 //客户端管理类
 class CClientManager
 {
@@ -91,6 +114,8 @@ public:
 	完成端口会自动调用此函数释放连接占用的资源
 	***************************/
 	bool CloseOneConnection(CClientSocket *pClient, unsigned __int64 i64Index);
+	//释放连接资源
+	void ReleaseOneConnection(unsigned __int64 i64Index, bool bErase = true);
 
 	//关闭所有连接
 	/*******************************
@@ -117,10 +142,24 @@ public:
 
 	//处理任务
 	bool ProcessJob();
+
+	//定时器
+	void OnBaseTimer();
+
+	//设置定时器
+	int SetTimer(DWORD dwTimerID, DWORD dwDelayTime, int iTimerCount);
+
+	//触发定时器
+	int OnTimer(DWORD dwTimerID);
+
+	//删除定时器
+	int KillTimer(DWORD dwTimerID);
+
 private:	
 	std::map<unsigned __int64, CClientSocket*> m_mapClientConnect;
 	std::list<CClientSocket *> m_lstFreeClientConn;
 	std::list<sJobItem *> m_lstJobItem;
+	std::map<UINT, sTimer> m_mapAllTimer;
 
 	bool m_bShutDown;//是否关闭服务
 	int m_iClientNums;//客户端连接数
@@ -129,6 +168,7 @@ private:
 	//锁
 	CRITICAL_SECTION m_csConnectLock;
 	CRITICAL_SECTION m_csJob;
+	CRITICAL_SECTION m_csTimer;
 public:
 	//CRITICAL_SECTION m_csEvent;
 };
@@ -150,6 +190,7 @@ public:
 	inline void SetIndex(unsigned __int64 i64Index){m_i64Index = i64Index;}
 	inline unsigned __int64 GetIndex(){return m_i64Index;}
 	void SetClientManager(CClientManager *pManager){m_pManage = pManager;}
+	DWORD GetTimeOutCount(){return m_dwTimeOutCount;}
 
 	//开始接收数据
 	bool OnRecvBegin();
@@ -187,6 +228,7 @@ private:
 	DWORD			m_dwRecvBuffLen;	//接收缓冲区长度
 	sOverLapped		m_SendOverData;		//发送数据重叠结构
 	sOverLapped		m_RecvOverData;		//接收数据重叠结构
+	DWORD			m_dwTimeOutCount;	//超时次数
 };
 
 class yServerSocket
@@ -209,6 +251,9 @@ private:
 	//开始监听
 	int StartListen(int iPort);
 
+	//开始定时器
+	int StartTimer();
+
 	//监听线程
 	static unsigned __stdcall ListenThreadProc(LPVOID pThreadParam);
 
@@ -218,13 +263,17 @@ private:
 	//工作线程
 	static unsigned __stdcall JobThreadProc(LPVOID pThreadParam);
 
+	//定时器线程
+	static unsigned __stdcall TimerThreadProc(LPVOID pThreadParam);
+
 private:
 	bool m_bWorking;
 	int m_iWSAInitResult;
 	DWORD m_dwIoThreadNum;
 	DWORD m_dwJobThreadNum;
-	HANDLE m_hThreadEvent;//批量发送事件
-	HANDLE m_hJobEvent;//批量发送事件
+	HANDLE m_hThreadEvent;//线程发送事件
+	HANDLE m_hJobEvent;//job发送事件
+	HANDLE m_hTimerEvent;//job发送事件
 	HANDLE m_hCompletionPort;//完成端口
 	HANDLE m_hListenThread;//监听线程句柄
 	SOCKET m_lsSocket;//监听socket

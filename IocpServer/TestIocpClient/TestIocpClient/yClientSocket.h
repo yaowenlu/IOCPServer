@@ -93,6 +93,8 @@ public:
 	完成端口会自动调用此函数释放连接占用的资源
 	***************************/
 	bool CloseOneConnection(CClientSocket *pClient, unsigned __int64 i64Index);
+	//释放连接资源
+	void ReleaseOneConnection(unsigned __int64 i64Index);
 
 	//关闭指定数量的连接
 	bool CloseConnection(DWORD dwNum);
