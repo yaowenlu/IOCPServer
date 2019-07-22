@@ -72,6 +72,7 @@ void CTestIocpServerDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_EDIT_THREAD_NUM, m_edWorkThreadNum);
 	DDX_Control(pDX, IDC_BUTTON_START_SERVICE, m_btStartService);
 	DDX_Control(pDX, IDC_BUTTON_STOP_SERVICE, m_btStopService);
+	DDX_Control(pDX, IDC_EDIT_IO_THREAD_NUM, m_edIoThreadNum);
 }
 
 BEGIN_MESSAGE_MAP(CTestIocpServerDlg, CDialogEx)
@@ -122,6 +123,7 @@ BOOL CTestIocpServerDlg::OnInitDialog()
 
 	m_lstLogs.InsertColumn(0, "日志信息", LVCFMT_LEFT, 750);
 	m_edListenPort.SetWindowText("6080");
+	m_edIoThreadNum.SetWindowText("0");
 	m_edWorkThreadNum.SetWindowText("0");
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
@@ -187,10 +189,15 @@ void CTestIocpServerDlg::OnBnClickedButtonStartService()
 	m_edWorkThreadNum.GetWindowText(szNum, 32);
 	int iWorkThreadNum = atoi(szNum);
 
+	//获取工作线程数
+	memset(szNum, 0, sizeof(szNum));
+	m_edIoThreadNum.GetWindowText(szNum, 32);
+	int iIoThreadNum = atoi(szNum);
+
 	CString strLog;
 	strLog.Format("StartService iListenPort=%d, iWorkThreadNum=%d", iListenPort, iWorkThreadNum);
 	m_lstLogs.InsertItem(m_lstLogs.GetItemCount(), strLog);
-	int iRet = m_pServerScoket->StartService(iListenPort, iWorkThreadNum, iWorkThreadNum);
+	int iRet = m_pServerScoket->StartService(iListenPort, iIoThreadNum, iWorkThreadNum);
 	if(0 != iRet)
 	{
 		strLog.Format("StartService ERROR iRet=%d", iRet);

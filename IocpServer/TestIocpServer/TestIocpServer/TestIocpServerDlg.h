@@ -49,4 +49,7 @@ private:
 public:
 	afx_msg void OnBnClickedButtonStartService();
 	afx_msg void OnBnClickedButtonStopService();
+private:
+	// IOÏß³ÌÊý
+	CEdit m_edIoThreadNum;
 };

@@ -29,10 +29,12 @@ class yClientSocket;
 enum 
 {
 	CODE_SUCC = 0,						//成功
+	CODE_SERVICE_WORKING,				//服务已经启动了
 	CODE_SERVICE_WSA_ERROR,				//WSA失败
 	CODE_SERVICE_PARAM_ERROR,			//参数错误
 	CODE_SERVICE_CREATE_EVENT_ERROR,	//创建完成端口错误
 	CODE_SERVICE_CREATE_IOCP_ERROR,		//创建完成端口错误
+	CODE_SERVICE_IO_FAILED,				//启动IO线程失败
 	CODE_SERVICE_WORK_FAILED,			//启动工作线程失败
 	CODE_SERVICE_LISTEN_FAILED,			//监听失败
 	CODE_SERVICE_UNKNOW_ERROR=100		//未知错误
@@ -81,7 +83,7 @@ struct sJobItem
 class CClientManager
 {
 public:
-	CClientManager();
+	CClientManager(yClientSocket* pServer);
 	~CClientManager();
 
 	//收到一个连接
@@ -92,9 +94,9 @@ public:
 	请不要直接调用此函数，要关闭一个连接调用对应客户端的CloseSocket函数即可，
 	完成端口会自动调用此函数释放连接占用的资源
 	***************************/
-	bool CloseOneConnection(CClientSocket *pClient, unsigned __int64 i64Index);
+	bool CloseOneConnection(CClientSocket *pClient, unsigned __int64 i64Index = 0);
 	//释放连接资源
-	void ReleaseOneConnection(unsigned __int64 i64Index);
+	void ReleaseOneConnection(unsigned __int64 i64Index, bool bErase = true);
 
 	//关闭指定数量的连接
 	bool CloseConnection(DWORD dwNum);
@@ -119,6 +121,9 @@ public:
 		return;
 	}
 
+	//获取一个新的job内存
+	sJobItem* NewJobItem(DWORD dwBufLen);
+
 	//增加任务
 	bool AddJob(sJobItem *pJob);
 
@@ -133,6 +138,7 @@ private:
 	bool m_bShutDown;//是否关闭服务
 	int m_iClientNums;//客户端连接数
 	unsigned __int64 m_i64UniqueIndex;//唯一索引
+	yClientSocket *m_pYClient;
 
 	//锁
 	CRITICAL_SECTION m_csConnectLock;
@@ -145,7 +151,7 @@ public:
 class CClientSocket
 {
 public:
-	CClientSocket();
+	CClientSocket(CClientManager *pManager);
 	~CClientSocket();
 	//初始化数据
 	void InitData();
@@ -157,7 +163,6 @@ public:
 	inline SOCKET GetSocket(){return m_hSocket;}
 	inline void SetIndex(unsigned __int64 i64Index){m_i64Index = i64Index;}
 	inline unsigned __int64 GetIndex(){return m_i64Index;}
-	void SetClientManager(CClientManager *pManager){m_pManage = pManager;}
 
 	//开始接收数据
 	bool OnRecvBegin();
@@ -187,7 +192,7 @@ protected:
 	char				m_szSendBuf[SED_SIZE];	//发送数据缓冲区
 	char				m_szRecvBuf[RCV_SIZE];	//数据接收缓冲区
 	long int			m_lBeginTime;			//连接时间
-	CClientManager		*m_pManage;				//SOCKET 管理类指针
+	CClientManager		*m_pManager;			//SOCKET 管理类指针
 
 	//内部数据
 private:
@@ -195,6 +200,7 @@ private:
 	DWORD			m_dwRecvBuffLen;	//接收缓冲区长度
 	sOverLapped		m_SendOverData;		//发送数据重叠结构
 	sOverLapped		m_RecvOverData;		//接收数据重叠结构
+	bool			m_bSending;			//数据是否正在发送
 };
 
 class yClientSocket
@@ -211,16 +217,19 @@ public:
 
 	//发送数据
 	int SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode);
+	
+	//获取工作事件句柄
+	HANDLE GetJobEvent(){return m_hJobEvent;}
 
 private:
 	//激活指定数量的客户端连接
 	int ActiveConnect(DWORD dwConnectNum);
 
 	//IO开始工作
-	int StartIOWork(DWORD usThreadNum);
+	int StartIOWork(DWORD dwThreadNum);
 
 	//开始任务处理
-	int StartJobWork(DWORD usThreadNum);
+	int StartJobWork(DWORD dwThreadNum);
 
 	//测试用
 	int StartTest();

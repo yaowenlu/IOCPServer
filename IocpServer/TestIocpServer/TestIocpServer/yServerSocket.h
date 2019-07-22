@@ -29,6 +29,7 @@
 
 class CClientSocket;
 class CClientManager;
+class yServerSocket;
 
 //开启服务错误码定义
 enum 
@@ -102,7 +103,7 @@ struct sTimer
 class CClientManager
 {
 public:
-	CClientManager();
+	CClientManager(yServerSocket* pServer);
 	~CClientManager();
 
 	//收到一个连接
@@ -113,7 +114,7 @@ public:
 	请不要直接调用此函数，要关闭一个连接调用对应客户端的CloseSocket函数即可，
 	完成端口会自动调用此函数释放连接占用的资源
 	***************************/
-	bool CloseOneConnection(CClientSocket *pClient, unsigned __int64 i64Index);
+	bool CloseOneConnection(CClientSocket *pClient, unsigned __int64 i64Index = 0);
 	//释放连接资源
 	void ReleaseOneConnection(unsigned __int64 i64Index, bool bErase = true);
 
@@ -136,6 +137,9 @@ public:
 		m_bShutDown = bShutDown;
 		return;
 	}
+
+	//获取一个新的job内存
+	sJobItem* NewJobItem(DWORD dwBufLen);
 
 	//增加任务
 	bool AddJob(sJobItem *pJob);
@@ -164,6 +168,7 @@ private:
 	bool m_bShutDown;//是否关闭服务
 	int m_iClientNums;//客户端连接数
 	unsigned __int64 m_i64UniqueIndex;//唯一索引
+	yServerSocket *m_pYServer;
 
 	//锁
 	CRITICAL_SECTION m_csConnectLock;
@@ -177,7 +182,7 @@ public:
 class CClientSocket
 {
 public:
-	CClientSocket();
+	CClientSocket(CClientManager *pManager);
 	~CClientSocket();
 	//初始化数据
 	void InitData();
@@ -189,7 +194,6 @@ public:
 	inline SOCKET GetSocket(){return m_hSocket;}
 	inline void SetIndex(unsigned __int64 i64Index){m_i64Index = i64Index;}
 	inline unsigned __int64 GetIndex(){return m_i64Index;}
-	void SetClientManager(CClientManager *pManager){m_pManage = pManager;}
 	DWORD GetTimeOutCount(){return m_dwTimeOutCount;}
 
 	//开始接收数据
@@ -220,7 +224,7 @@ protected:
 	char				m_szSendBuf[SED_SIZE];	//发送数据缓冲区
 	char				m_szRecvBuf[RCV_SIZE];	//数据接收缓冲区
 	long int			m_lBeginTime;			//连接时间
-	CClientManager		*m_pManage;				//SOCKET 管理类指针
+	CClientManager		*m_pManager;			//SOCKET 管理类指针
 
 	//内部数据
 private:
@@ -229,6 +233,7 @@ private:
 	sOverLapped		m_SendOverData;		//发送数据重叠结构
 	sOverLapped		m_RecvOverData;		//接收数据重叠结构
 	DWORD			m_dwTimeOutCount;	//超时次数
+	bool			m_bSending;			//数据是否正在发送
 };
 
 class yServerSocket
@@ -241,6 +246,10 @@ public:
 
 	//停止服务
 	int StopService();
+
+	//获取工作事件句柄
+	HANDLE GetJobEvent(){return m_hJobEvent;}
+
 private:
 	//IO开始工作
 	int StartIOWork(DWORD dwThreadNum);
