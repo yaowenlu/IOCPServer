@@ -41,19 +41,21 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>../../WinZlog/Release/head;$(IncludePath)</IncludePath>
+    <IncludePath>../../WinZlog/Release/head;../../common/include;$(IncludePath)</IncludePath>
     <LibraryPath>../../WinZlog/Release/lib;$(LibraryPath)</LibraryPath>
     <ExecutablePath>$(ExecutablePath)</ExecutablePath>
     <ReferencePath>$(ReferencePath)</ReferencePath>
+    <SourcePath>../../common/src;$(SourcePath)</SourcePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>../../WinZlog/Release/head;$(IncludePath)</IncludePath>
+    <IncludePath>../../WinZlog/Release/head;../../common/include;$(IncludePath)</IncludePath>
     <LibraryPath>../../WinZlog/Release/lib;$(LibraryPath)</LibraryPath>
+    <SourcePath>../../common/src;$(SourcePath)</SourcePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -83,7 +85,7 @@ copy "$(SolutionDir)..\\WinZlog\\Release\\bin\\zlog.dll" "$(TargetDir)"</Command
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -117,22 +119,32 @@ copy "$(SolutionDir)..\\WinZlog\\Release\\bin\\zlog.dll" "$(TargetDir)"</Command
     <None Include="res\TestIocpClient.rc2" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="MsgDefine.h" />
+    <ClInclude Include="..\..\common\include\ClientSocket.h" />
+    <ClInclude Include="..\..\common\include\CommEvent.h" />
+    <ClInclude Include="..\..\common\include\CommSocketStruct.h" />
+    <ClInclude Include="..\..\common\include\EventDefine.h" />
+    <ClInclude Include="..\..\common\include\JobManager.h" />
+    <ClInclude Include="..\..\common\include\MsgDefine.h" />
+    <ClInclude Include="..\..\common\include\SocketManager.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="TestIocpClient.h" />
     <ClInclude Include="TestIocpClientDlg.h" />
-    <ClInclude Include="yClientSocket.h" />
+    <ClInclude Include="yClientImpl.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\common\src\ClientSocket.cpp" />
+    <ClCompile Include="..\..\common\src\CommEvent.cpp" />
+    <ClCompile Include="..\..\common\src\JobManager.cpp" />
+    <ClCompile Include="..\..\common\src\SocketManager.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="TestIocpClient.cpp" />
     <ClCompile Include="TestIocpClientDlg.cpp" />
-    <ClCompile Include="yClientSocket.cpp" />
+    <ClCompile Include="yClientImpl.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="TestIocpClient.rc" />

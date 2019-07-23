@@ -52,15 +52,15 @@ CTestIocpServerDlg::CTestIocpServerDlg(CWnd* pParent /*=NULL*/)
 	: CDialogEx(CTestIocpServerDlg::IDD, pParent)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
-	m_pServerScoket = new yServerSocket;
+	m_pServerImpl = new yServerImpl;
 }
 
 CTestIocpServerDlg::~CTestIocpServerDlg()
 {
-	if(nullptr != m_pServerScoket)
+	if(nullptr != m_pServerImpl)
 	{
-		delete m_pServerScoket;
-		m_pServerScoket = nullptr;
+		delete m_pServerImpl;
+		m_pServerImpl = nullptr;
 	}
 }
 
@@ -197,7 +197,7 @@ void CTestIocpServerDlg::OnBnClickedButtonStartService()
 	CString strLog;
 	strLog.Format("StartService iListenPort=%d, iWorkThreadNum=%d", iListenPort, iWorkThreadNum);
 	m_lstLogs.InsertItem(m_lstLogs.GetItemCount(), strLog);
-	int iRet = m_pServerScoket->StartService(iListenPort, iIoThreadNum, iWorkThreadNum);
+	int iRet = m_pServerImpl->StartService(iListenPort, iIoThreadNum, iWorkThreadNum);
 	if(0 != iRet)
 	{
 		strLog.Format("StartService ERROR iRet=%d", iRet);
@@ -213,7 +213,7 @@ void CTestIocpServerDlg::OnBnClickedButtonStartService()
 void CTestIocpServerDlg::OnBnClickedButtonStopService()
 {
 	// TODO: 在此添加控件通知处理程序代码
-	int iRet = m_pServerScoket->StopService();
+	int iRet = m_pServerImpl->StopService();
 	CString strLog;
 	if(0 != iRet)
 	{

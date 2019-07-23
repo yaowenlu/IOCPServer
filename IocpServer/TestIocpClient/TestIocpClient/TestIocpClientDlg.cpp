@@ -52,15 +52,15 @@ CTestIocpClientDlg::CTestIocpClientDlg(CWnd* pParent /*=NULL*/)
 	: CDialogEx(CTestIocpClientDlg::IDD, pParent)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
-	m_pClientSocket = new yClientSocket;
+	m_pClientImpl = new yClientImpl;
 }
 
 CTestIocpClientDlg::~CTestIocpClientDlg()
 {
-	if(nullptr != m_pClientSocket)
+	if(nullptr != m_pClientImpl)
 	{
-		delete m_pClientSocket;
-		m_pClientSocket = nullptr;
+		delete m_pClientImpl;
+		m_pClientImpl = nullptr;
 	}
 }
 
@@ -204,7 +204,7 @@ void CTestIocpClientDlg::OnBnClickedButtonConnect()
 	strLog.Format("ConnectServer ip=%s, port=%d, num=%d", strIp, iPort, iNum);
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 
-	int iRet = m_pClientSocket->ConnectServer(strIp.GetBuffer(), iPort, iNum);
+	int iRet = m_pClientImpl->ConnectServer(strIp.GetBuffer(), iPort, iNum);
 	strLog.Format("ConnectServer iRet=%d", iRet);
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 }
@@ -213,7 +213,7 @@ void CTestIocpClientDlg::OnBnClickedButtonConnect()
 void CTestIocpClientDlg::OnBnClickedButtonDisconnect()
 {
 	// TODO: 在此添加控件通知处理程序代码
-	m_pClientSocket->DisConnectServer();
+	m_pClientImpl->DisConnectServer();
 	CString strLog;
 	strLog.Format("DisConnectServer!");
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
@@ -226,7 +226,7 @@ void CTestIocpClientDlg::OnBnClickedButtonSendmsg()
 	char szMsg[MAX_SEND_SIZE] = {0};
 	m_edMsgContent.GetWindowText(szMsg, MAX_SEND_SIZE);
 	UINT uLen = strlen(szMsg);
-	m_pClientSocket->SendData(szMsg, uLen, 100, 10, 1);
+	m_pClientImpl->SendData(szMsg, uLen, 100, 10, 1);
 	CString strLog;
 	strLog.Format("SendData szMsg=%s", szMsg);
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);

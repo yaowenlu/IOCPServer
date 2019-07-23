@@ -5,7 +5,7 @@
 #pragma once
 #include "afxcmn.h"
 #include "afxwin.h"
-#include "yServerSocket.h"
+#include "yServerImpl.h"
 
 
 // CTestIocpServerDlg 对话框
@@ -45,7 +45,7 @@ private:
 	// 停止服务
 	CButton m_btStopService;
 	//Socket类实例
-	yServerSocket *m_pServerScoket;
+	yServerImpl *m_pServerImpl;
 public:
 	afx_msg void OnBnClickedButtonStartService();
 	afx_msg void OnBnClickedButtonStopService();

@@ -5,7 +5,7 @@
 #pragma once
 #include "afxcmn.h"
 #include "afxwin.h"
-#include "yClientSocket.h"
+#include "yClientImpl.h"
 
 
 // CTestIocpClientDlg 对话框
@@ -51,7 +51,7 @@ private:
 	// 发送消息
 	CButton m_btSendMsg;
 private:
-	yClientSocket* m_pClientSocket;
+	yClientImpl* m_pClientImpl;
 public:
 	afx_msg void OnBnClickedButtonConnect();
 	afx_msg void OnBnClickedButtonDisconnect();
