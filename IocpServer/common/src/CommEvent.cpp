@@ -1,4 +1,5 @@
 #include "CommEvent.h"
+#include "SpdlogDef.h"
 
 CCommEvent* CCommEvent::m_pInstance = nullptr;
 
@@ -38,7 +39,7 @@ void CCommEvent::AddOneEvent(std::string strEventName, void *pEventFunc, void *p
 	map<string, sEventInfo>::iterator itEvent = m_mapEvent.find(strEventName);
 	if(itEvent != m_mapEvent.end())
 	{
-		dzlog_warn("AddOneEvent strEventName=%s already exist!", strEventName.c_str());
+		loggerIns()->warn("AddOneEvent strEventName=%s already exist!", strEventName.c_str());
 	}
 	else
 	{
@@ -69,7 +70,7 @@ void CCommEvent::NotifyOneEvent(std::string strEventName)
 	map<string, sEventInfo>::iterator itEvent = m_mapEvent.find(strEventName);
 	if(itEvent == m_mapEvent.end())
 	{
-		dzlog_warn("NotifyOneEvent strEventName=%s not exist!", strEventName.c_str());
+		loggerIns()->warn("NotifyOneEvent strEventName=%s not exist!", strEventName.c_str());
 	}
 	else
 	{

@@ -1,9 +1,9 @@
 #include "stdafx.h"
 #include "yServerImpl.h"
 #include "CommEvent.h"
+#include "SpdlogDef.h"
 
 #pragma comment(lib,"ws2_32.lib")
-#pragma comment(lib,"zlog.lib")
 
 
 CSrvClientSocket::CSrvClientSocket()
@@ -23,7 +23,7 @@ void CSrvClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 	__super::HandleMsg(pMsgBuf, dwBufLen);
 	if(nullptr == pMsgBuf || dwBufLen < sizeof(NetMsgHead))
 	{
-		dzlog_error("HandleMsg m_i64Index=%lld, pMsgBuf=%x, dwBufLen=%d", m_i64Index, pMsgBuf, dwBufLen);
+		loggerIns()->error("HandleMsg m_i64Index={}, pMsgBuf={}, dwBufLen={}", m_i64Index, (void*)(pMsgBuf), dwBufLen);
 		return;
 	}
 
@@ -31,7 +31,7 @@ void CSrvClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 	//根据不同的消息ID做处理
 	if(pMsgHead)
 	{
-		dzlog_debug("HandleMsg m_i64Index=%lld, dwMsgSize=%d, dwMainID=%d, dwAssID=%d, dwHandleCode=%d, dwReserve=%d", 
+		loggerIns()->debug("HandleMsg m_i64Index={}, dwMsgSize={}, dwMainID={}, dwAssID={}, dwHandleCode={}, dwReserve={}", 
 			m_i64Index, pMsgHead->dwMsgSize, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode, pMsgHead->dwReserve);
 		DWORD dwDataLen = dwBufLen - sizeof(NetMsgHead);
 		BYTE *pDataBuf = (BYTE*)pMsgBuf + sizeof(NetMsgHead);
@@ -39,7 +39,7 @@ void CSrvClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 	}
 	else
 	{
-		dzlog_error("HandleMsg m_i64Index=%lld, pMsgHead is null!", m_i64Index);
+		loggerIns()->error("HandleMsg m_i64Index={}, pMsgHead is null!", m_i64Index);
 	}
 	return;
 }
@@ -79,7 +79,7 @@ CClientSocket* CSrvSocketManager::ActiveOneConnection(SOCKET hSocket)
 	if(nullptr == pClient)
 	{
 		LeaveCriticalSection(&m_csConnectLock);
-		dzlog_error("new CSrvClientSocket fail");
+		loggerIns()->error("new CSrvClientSocket fail");
 		return nullptr;
 	}
 	pClient->SetSocket(hSocket);
@@ -92,18 +92,13 @@ CClientSocket* CSrvSocketManager::ActiveOneConnection(SOCKET hSocket)
 	pClient->SetIndex(i64Index);
 	m_mapClientConnect[i64Index] = pClient;
 	++m_iClientNums;
-	dzlog_info("ActiveOneConnection m_iClientNums=%d, i64Index=%lld", m_iClientNums, i64Index);
+	loggerIns()->info("ActiveOneConnection m_iClientNums={}, i64Index={}", m_iClientNums, i64Index);
 	LeaveCriticalSection(&m_csConnectLock);
 	return pClient;
 }
 
 yServerImpl::yServerImpl()
-{
-	char szPath[MAX_PATH] = {0};
-	GetCurrentDirectory(MAX_PATH, szPath);
-	std::string strFullPath = szPath;
-	strFullPath += "/conf/zlog_conf.conf";
-	int iRet = dzlog_init(strFullPath.c_str(), "my_cat");
+{		
 	m_bWorking = false;
 	m_iWSAInitResult = -1;
 	m_dwIoThreadNum = 0;
@@ -115,20 +110,19 @@ yServerImpl::yServerImpl()
 	m_hListenThread = NULL;
 	m_lsSocket = INVALID_SOCKET;
 	m_pSrvSocketManager = nullptr;
-	dzlog_debug("constructor yServerImpl finish! iRet=%d", iRet);
+	loggerIns()->debug("constructor yServerImpl finish!");
 }
 
 yServerImpl::~yServerImpl()
 {
 	StopService();
-	dzlog_debug("distructor yServerImpl finish!");
-	zlog_fini();
+	loggerIns()->debug("distructor yServerImpl finish!");
 }
 
 //停止服务
 int yServerImpl::StopService()
 {
-	dzlog_debug("yServerImpl StopService!");
+	loggerIns()->debug("yServerImpl StopService!");
 	m_bWorking = false;
 	//删除心跳定时器
 	if(nullptr != m_pSrvSocketManager)
@@ -216,15 +210,15 @@ int yServerImpl::StopService()
 
 int yServerImpl::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThreadNum)
 {
-	dzlog_debug("yServerImpl StartService! iPort=%d, dwIoThreadNum=%d, dwJobThreadNum=%d", iPort, dwIoThreadNum, dwJobThreadNum);
+	loggerIns()->debug("yServerImpl StartService! iPort={}, dwIoThreadNum={}, dwJobThreadNum={}", iPort, dwIoThreadNum, dwJobThreadNum);
 	if(m_bWorking)
 	{
-		dzlog_error("StartService is working!");
+		loggerIns()->error("StartService is working!");
 		return CODE_SERVICE_WORKING;
 	}
 	if(iPort <= 100)
 	{
-		dzlog_error("StartService iPort=%d illgelal!", iPort);
+		loggerIns()->error("StartService iPort={} illgelal!", iPort);
 		return CODE_SERVICE_PARAM_ERROR;
 	}
 
@@ -325,7 +319,7 @@ int yServerImpl::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThreadN
 //开始工作
 int yServerImpl::StartIOWork(DWORD dwThreadNum)
 {
-	dzlog_info("yServerImpl StartIOWork dwThreadNum=%d!", dwThreadNum);
+	loggerIns()->info("yServerImpl StartIOWork dwThreadNum={}!", dwThreadNum);
 	if(dwThreadNum <= 0 || dwThreadNum >= MAX_THREAD_NUMS)
 	{
 		return -1;
@@ -360,7 +354,7 @@ int yServerImpl::StartIOWork(DWORD dwThreadNum)
 //开始工作
 int yServerImpl::StartJobWork(DWORD dwThreadNum)
 {
-	dzlog_info("yServerImpl StartJobWork dwThreadNum=%d!", dwThreadNum);
+	loggerIns()->info("yServerImpl StartJobWork dwThreadNum={}!", dwThreadNum);
 	if(dwThreadNum <= 0 || dwThreadNum >= MAX_THREAD_NUMS)
 	{
 		return -1;
@@ -395,7 +389,7 @@ int yServerImpl::StartJobWork(DWORD dwThreadNum)
 //开始监听
 int yServerImpl::StartListen(int iPort)
 {
-	m_lsSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);	
+	m_lsSocket = ::WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);	
 	if (INVALID_SOCKET == m_lsSocket)
 	{
 		return -1;
@@ -406,7 +400,7 @@ int yServerImpl::StartListen(int iPort)
 	serverAddr.sin_port = htons(iPort);
 	serverAddr.sin_family = AF_INET;
 	serverAddr.sin_addr.s_addr = INADDR_ANY;
-	if (SOCKET_ERROR == bind(m_lsSocket, (LPSOCKADDR)&serverAddr, sizeof(serverAddr)))
+	if (SOCKET_ERROR == ::bind(m_lsSocket, (LPSOCKADDR)&serverAddr, sizeof(serverAddr)))
 	{
 		closesocket(m_lsSocket);
 		return -2;
@@ -464,18 +458,18 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 		pClient = nullptr;
 		pOverLapped = nullptr;
 		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&pClient, &lpOverlapped, INFINITE);
-		dzlog_debug("IOThreadProc iThreadIndex=%d, dwTransferred=%d, bIoRet=%d", iThreadIndex, dwTransferred, bIoRet);
+		loggerIns()->debug("IOThreadProc iThreadIndex={}, dwTransferred={}, bIoRet={}", iThreadIndex, dwTransferred, bIoRet);
 		if(!bIoRet)
 		{
 			DWORD dwIoError = GetLastError();
-			dzlog_warn("GetQueuedCompletionStatus dwIoError=%d", dwIoError);
+			loggerIns()->warn("GetQueuedCompletionStatus dwIoError={}", dwIoError);
 			//INFINITE条件下不可能WAIT_TIMEOUT
 			if(dwIoError != WAIT_TIMEOUT)
 			{
 				//(ERROR_NETNAME_DELETED == dwIoError || WSAECONNRESET == dwIoError || WSAECONNABORTED == dwIoError)
 				if(nullptr != pClient)
 				{
-					dzlog_info("before close 1, m_i64Index=%lld", pClient->GetIndex());
+					loggerIns()->info("before close 1, m_i64Index={}", pClient->GetIndex());
 					pSrvSocketManage->CloseOneConnection(pClient);
 					continue;
 				}
@@ -485,8 +479,8 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 		{
 			if(nullptr != pClient)
 			{
-				dzlog_debug("m_i64Index=%lld, lpOverlapped=%x, send=%x, recv=%x", 
-					pClient->GetIndex(), lpOverlapped, &pClient->m_SendOverData.OverLapped, &pClient->m_RecvOverData.OverLapped);
+				loggerIns()->debug("m_i64Index={}, lpOverlapped={}, send={}, recv={}", 
+					pClient->GetIndex(), (void*)(lpOverlapped), (void*)(&pClient->m_SendOverData.OverLapped), (void*)(&pClient->m_RecvOverData.OverLapped));
 			}
 			pOverLapped = CONTAINING_RECORD(lpOverlapped, sOverLapped, OverLapped);
 		}
@@ -498,16 +492,16 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 			{				
 				SetEvent(hThreadEvent);				
 			}
-			dzlog_info("IOThreadProc exit! iThreadIndex=%d", iThreadIndex);
+			loggerIns()->info("IOThreadProc exit! iThreadIndex={}", iThreadIndex);
 			return 0;
 		}
 
-		dzlog_debug("GetQueuedCompletionStatus m_i64Index=%lld, dwTransferred=%d, uOperationType=%d, send OperationType=%d, recv OperationType=%d", 
+		loggerIns()->debug("GetQueuedCompletionStatus m_i64Index={}, dwTransferred={}, uOperationType={}, send OperationType={}, recv OperationType={}", 
 			pClient->GetIndex(), dwTransferred, pOverLapped->uOperationType, pClient->m_SendOverData.uOperationType, pClient->m_RecvOverData.uOperationType);
 		//断开连接了
 		if ((0 == dwTransferred) && (SOCKET_REV_FINISH == pOverLapped->uOperationType))
 		{
-			dzlog_info("before close 2, m_i64Index=%lld", pClient->GetIndex());
+			loggerIns()->info("before close 2, m_i64Index={}", pClient->GetIndex());
 			pSrvSocketManage->CloseOneConnection(pClient, pOverLapped->i64Index);
 			continue;
 		}
@@ -515,12 +509,12 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 		bool bSucc = pSrvSocketManage->ProcessIOMessage(pClient, pOverLapped, dwTransferred);
 		if(!bSucc)
 		{
-			dzlog_info("before close 3, m_i64Index=%lld", pClient->GetIndex());
+			loggerIns()->info("before close 3, m_i64Index={}", pClient->GetIndex());
 			pSrvSocketManage->CloseOneConnection(pClient);
-			dzlog_error("uOperationType=%d return error!", pOverLapped->uOperationType);
+			loggerIns()->error("uOperationType={} return error!", pOverLapped->uOperationType);
 		}
 	}
-	dzlog_info("IOThreadProc exit! iThreadIndex=%d", iThreadIndex);
+	loggerIns()->info("IOThreadProc exit! iThreadIndex={}", iThreadIndex);
 	return 0;
 }
 
@@ -554,7 +548,7 @@ unsigned __stdcall yServerImpl::ListenThreadProc(LPVOID pParam)
 			hSocket = ::WSAAccept(hLsSocket, NULL, &nLen, 0, 0); 
 			if (INVALID_SOCKET == hSocket)
 			{
-				dzlog_error("WSAAccept error! WSAGetLastError=%d", WSAGetLastError());
+				loggerIns()->error("WSAAccept error! WSAGetLastError={}", WSAGetLastError());
 				return 0;
 			}
 			else
@@ -566,7 +560,7 @@ unsigned __stdcall yServerImpl::ListenThreadProc(LPVOID pParam)
 					//出错了
 					if(NULL == hAcceptCompletionPort || !pClient->OnRecvBegin())
 					{
-						dzlog_error("CreateIoCompletionPort error=%d", WSAGetLastError());
+						loggerIns()->error("CreateIoCompletionPort error={}", WSAGetLastError());
 					}
 
 					//发送连接成功消息
@@ -578,7 +572,7 @@ unsigned __stdcall yServerImpl::ListenThreadProc(LPVOID pParam)
 		}
 		catch(...)
 		{
-			dzlog_error("ListenThreadProc catch an error!");
+			loggerIns()->error("ListenThreadProc catch an error!");
 			if (nullptr != pClient) 
 			{
 				pSrvSocketManage->CloseOneConnection(pClient, pClient->GetIndex());
@@ -609,7 +603,7 @@ unsigned __stdcall yServerImpl::JobThreadProc(LPVOID pParam)
 	while (true)
 	{
 		WaitForSingleObject(hJobEvent, INFINITE);
-		dzlog_debug("JobThreadProc get single! iThreadIndex=%d", iThreadIndex);
+		loggerIns()->debug("JobThreadProc get single! iThreadIndex={}", iThreadIndex);
 		if(pSrvSocketManage->GetIsShutDown())
 		{
 			break;
@@ -620,7 +614,7 @@ unsigned __stdcall yServerImpl::JobThreadProc(LPVOID pParam)
 			ResetEvent(hJobEvent);
 		}
 	}
-	dzlog_info("JobThreadProc exit! iThreadIndex=%d", iThreadIndex);
+	loggerIns()->info("JobThreadProc exit! iThreadIndex={}", iThreadIndex);
 	SetEvent(hThreadEvent);
 	return 0;
 }
@@ -628,7 +622,7 @@ unsigned __stdcall yServerImpl::JobThreadProc(LPVOID pParam)
 //开始定时器
 int yServerImpl::StartTimer()
 {
-	dzlog_info("yServerImpl StartTimer!");
+	loggerIns()->info("yServerImpl StartTimer!");
 	HANDLE hThreadHandle = NULL;
 	UINT uThreadID = 0;
 	sThreadData threadData;
@@ -673,7 +667,7 @@ unsigned __stdcall yServerImpl::TimerThreadProc(LPVOID pParam)
 		ResetEvent(hTimerEvent);
 		pSrvSocketManage->OnBaseTimer();
 	}
-	dzlog_info("TimerThreadProc exit!");
+	loggerIns()->info("TimerThreadProc exit!");
 	SetEvent(hThreadEvent);
 	return 0;
 }

@@ -1,4 +1,5 @@
 #include "ClientSocket.h"
+#include "SpdlogDef.h"
 
 /*********************************************************
 *********************************************************
@@ -69,11 +70,11 @@ bool CClientSocket::OnRecvBegin()
 	m_RecvOverData.WSABuffer.buf = m_szRecvBuf + m_dwRecvBuffLen;
 	m_RecvOverData.WSABuffer.len = RCV_SIZE - m_dwRecvBuffLen;
 	m_RecvOverData.uOperationType = SOCKET_REV_FINISH;
-	dzlog_debug("recv m_i64Index=%lld, i64SrvIndex=%lld, OverLapped=%x", m_i64Index, GetSrvIndex(), &m_RecvOverData.OverLapped);
+	loggerIns()->debug("recv m_i64Index={}, i64SrvIndex={}, OverLapped={}", m_i64Index, GetSrvIndex(), (void *)(&m_RecvOverData.OverLapped));
 	int iRet = WSARecv(m_hSocket, &m_RecvOverData.WSABuffer, 1, &dwRecvCount, &dwFlags, &m_RecvOverData.OverLapped, NULL);
 	if (SOCKET_ERROR == iRet && WSAGetLastError() != WSA_IO_PENDING)
 	{
-		dzlog_error("OnRecvBegin error=%d, m_i64Index=%lld, i64SrvIndex=%lld", WSAGetLastError(), m_i64Index, GetSrvIndex());
+		loggerIns()->error("OnRecvBegin error={}, m_i64Index={}, i64SrvIndex={}", WSAGetLastError(), m_i64Index, GetSrvIndex());
 		CloseSocket();
 		LeaveCriticalSection(&m_csRecvLock);
 		return false;
@@ -96,7 +97,7 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount, std::list<sJobItem *> &ls
 	//接收缓冲区满了
 	if(m_dwRecvBuffLen > RCV_SIZE)
 	{
-		dzlog_error("OnRecvCompleted m_dwRecvBuffLen=%d is bigger than RCV_SIZE=%d, discard recv data!", m_dwRecvBuffLen, dwRecvCount);
+		loggerIns()->error("OnRecvCompleted m_dwRecvBuffLen={} is bigger than RCV_SIZE={}, discard recv data!", m_dwRecvBuffLen, dwRecvCount);
 		m_dwRecvBuffLen -= dwRecvCount;
 		LeaveCriticalSection(&m_csRecvLock);
 		return true;
@@ -107,7 +108,7 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount, std::list<sJobItem *> &ls
 	while(m_dwRecvBuffLen > sizeof(DWORD))
 	{
 		pMsgSize = reinterpret_cast<DWORD *>(m_szRecvBuf);
-		dzlog_debug("OnRecvCompleted m_i64Index=%lld, i64SrvIndex=%lld, dwRecvCount=%d, m_dwRecvBuffLen=%d, MsgSize=%d", 
+		loggerIns()->debug("OnRecvCompleted m_i64Index={}, i64SrvIndex={}, dwRecvCount={}, m_dwRecvBuffLen={}, MsgSize={}", 
 			m_i64Index, GetSrvIndex(), dwRecvCount, m_dwRecvBuffLen, nullptr==pMsgSize?0:*pMsgSize);
 		//接收到了完整的消息
 		if(nullptr != pMsgSize && m_dwRecvBuffLen >= *pMsgSize)
@@ -117,7 +118,7 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount, std::list<sJobItem *> &ls
 			//非法数据包
 			if(!pMsgHead || pMsgHead->dwMsgSize < sizeof(NetMsgHead))
 			{
-				dzlog_error("msg null or size illegal! pMsgHead=%x", pMsgHead);
+				loggerIns()->error("msg null or size illegal! pMsgHead={}", (void *)(pMsgHead));
 				CloseSocket();
 				LeaveCriticalSection(&m_csRecvLock);
 				return false;
@@ -126,7 +127,7 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount, std::list<sJobItem *> &ls
 			sJobItem *pJob = m_jobManager.NewJobItem(dwMsgSize);
 			if(!pJob)
 			{
-				dzlog_error("NewJobItem fail!");
+				loggerIns()->error("NewJobItem fail!");
 				CloseSocket();
 				LeaveCriticalSection(&m_csRecvLock);
 				return false;
@@ -163,7 +164,7 @@ int CClientSocket::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD 
 		//缓冲区满了
 		if (uSendSize > (SED_SIZE - m_dwSendBuffLen))
 		{
-			dzlog_error("SendData uSendSize=%d is bigger than left buflen=%d, discard SendData m_i64Index=%lld, i64SrvIndex=%lld, dwMainID=%d, dwAssID=%d, dwHandleCode=%d", 
+			loggerIns()->error("SendData uSendSize={} is bigger than left buflen={}, discard SendData m_i64Index={}, i64SrvIndex={}, dwMainID={}, dwAssID={}, dwHandleCode{}", 
 				uSendSize, SED_SIZE - m_dwSendBuffLen, m_i64Index, GetSrvIndex(), dwMainID, dwAssID, dwHandleCode);
 			LeaveCriticalSection(&m_csSendLock);
 			return -1;
@@ -189,7 +190,7 @@ int CClientSocket::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD 
 	}
 	else
 	{
-		dzlog_warn("SendData aborted dwDataLen=%d", dwDataLen);
+		loggerIns()->warn("SendData aborted dwDataLen={}", dwDataLen);
 	}
 	return 0;
 }
@@ -199,7 +200,7 @@ bool CClientSocket::OnSendBegin()
 {
 	EnterCriticalSection(&m_csSendLock);
 	EnterCriticalSection(&m_csStateLock);
-	dzlog_debug("OnSendBegin m_i64Index=%lld, i64SrvIndex=%lld, m_bSending=%d, m_dwSendBuffLen=%d", m_i64Index, GetSrvIndex(), m_bSending, m_dwSendBuffLen);
+	loggerIns()->debug("OnSendBegin m_i64Index={}, i64SrvIndex={}, m_bSending={}, m_dwSendBuffLen={}", m_i64Index, GetSrvIndex(), m_bSending, m_dwSendBuffLen);
 	if (!m_bSending && m_dwSendBuffLen > 0)
 	{
 		m_bSending = true;
@@ -208,11 +209,11 @@ bool CClientSocket::OnSendBegin()
 		m_SendOverData.WSABuffer.buf = m_szSendBuf;
 		m_SendOverData.WSABuffer.len = m_dwSendBuffLen;
 		m_SendOverData.uOperationType = SOCKET_SND_FINISH;
-		dzlog_debug("send m_i64Index=%lld, i64SrvIndex=%lld, OverLapped=%x", m_i64Index, GetSrvIndex(), &m_SendOverData.OverLapped);
+		loggerIns()->debug("send m_i64Index={}, i64SrvIndex={}, OverLapped={}", m_i64Index, GetSrvIndex(), (void *)(&m_SendOverData.OverLapped));
 		int iRet = WSASend(m_hSocket,&m_SendOverData.WSABuffer,1,&dwSendCount,0,&m_SendOverData.OverLapped,NULL);
 		if (SOCKET_ERROR == iRet && WSAGetLastError() != WSA_IO_PENDING)
 		{
-			dzlog_error("OnSendBegin error=%d, m_i64Index=%lld, i64SrvIndex=%lld", WSAGetLastError(), m_i64Index, GetSrvIndex());
+			loggerIns()->error("OnSendBegin error={}, m_i64Index={}, i64SrvIndex={}", WSAGetLastError(), m_i64Index, GetSrvIndex());
 			CloseSocket();
 			m_bSending = false;
 			LeaveCriticalSection(&m_csStateLock);
@@ -230,7 +231,7 @@ bool CClientSocket::OnSendCompleted(DWORD dwSendCount)
 {
 	bool bSucc = true;
 	EnterCriticalSection(&m_csSendLock);
-	dzlog_info("OnSendCompleted m_i64Index=%lld, i64SrvIndex=%lld, m_dwSendBuffLen=%d, dwSendCount=%d", 
+	loggerIns()->info("OnSendCompleted m_i64Index={}, i64SrvIndex={}, m_dwSendBuffLen={}, dwSendCount={}", 
 		m_i64Index, GetSrvIndex(), m_dwSendBuffLen, dwSendCount);
 	EnterCriticalSection(&m_csStateLock);
 	m_bSending = false;

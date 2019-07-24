@@ -3,8 +3,6 @@
 
 #include <winsock2.h>
 #include <list>
-//zlog»’÷æø‚
-#include "zlog.h"
 
 #include "MsgDefine.h"
 #include "CommSocketStruct.h"

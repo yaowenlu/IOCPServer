@@ -2,9 +2,9 @@
 #include "yClientImpl.h"
 #include <WS2tcpip.h>
 #include "CommEvent.h"
+#include "SpdlogDef.h"
 
 #pragma comment(lib,"ws2_32.lib")
-#pragma comment(lib,"zlog.lib")
 
 
 /************************************************************************/
@@ -27,7 +27,7 @@ void CCltClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 	__super::HandleMsg(pMsgBuf, dwBufLen);
 	if(nullptr == pMsgBuf || dwBufLen < sizeof(NetMsgHead))
 	{
-		dzlog_error("HandleMsg m_i64Index=%lld, i64SrvIndex=%lld, pMsgBuf=%x, dwBufLen=%d", m_i64Index, m_i64SrvIndex, pMsgBuf, dwBufLen);
+		loggerIns()->error("HandleMsg m_i64Index={}, i64SrvIndex={}, pMsgBuf={}, dwBufLen={}", m_i64Index, m_i64SrvIndex, (void*)(pMsgBuf), dwBufLen);
 		return;
 	}
 
@@ -35,7 +35,7 @@ void CCltClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 	//根据不同的消息ID做处理
 	if(pMsgHead)
 	{
-		dzlog_debug("HandleMsg m_i64Index=%lld, i64SrvIndex=%lld, dwMsgSize=%d, dwMainID=%d, dwAssID=%d, dwHandleCode=%d, dwReserve=%d", 
+		loggerIns()->debug("HandleMsg m_i64Index={}, i64SrvIndex={}, dwMsgSize={}, dwMainID={}, dwAssID={}, dwHandleCode={}, dwReserve={}", 
 			m_i64Index, m_i64SrvIndex, pMsgHead->dwMsgSize, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode, pMsgHead->dwReserve);
 		if(MAIN_KEEP_ALIVE == pMsgHead->dwMainID)
 		{
@@ -62,7 +62,7 @@ void CCltClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 					DWORD dwDateLen = dwBufLen - sizeof(NetMsgHead);
 					if(dwDateLen != sizeof(sConnectSucc))
 					{
-						dzlog_error("ASS_CONNECT_SUCC dwDateLen=%d != sizeof(sConnectSucc)=%d", dwDateLen, sizeof(sConnectSucc));
+						loggerIns()->error("ASS_CONNECT_SUCC dwDateLen={} != sizeof(sConnectSucc)={}", dwDateLen, sizeof(sConnectSucc));
 						break;
 					}
 					sConnectSucc* pConnectSucc = reinterpret_cast<sConnectSucc*>(pMsgHead+1);
@@ -79,7 +79,7 @@ void CCltClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 	}
 	else
 	{
-		dzlog_error("HandleMsg m_i64Index=%lld, i64SrvIndex=%lld, pMsgHead is null!", m_i64Index, m_i64SrvIndex);
+		loggerIns()->error("HandleMsg m_i64Index={}, i64SrvIndex={}, pMsgHead is null!", m_i64Index, m_i64SrvIndex);
 	}
 	return;
 }
@@ -123,7 +123,7 @@ CClientSocket* CCltSocketManager::ActiveOneConnection(SOCKET hSocket)
 	if(nullptr == pClient)
 	{
 		LeaveCriticalSection(&m_csConnectLock);
-		dzlog_error("new CSrvClientSocket fail");
+		loggerIns()->error("new CSrvClientSocket fail");
 		return nullptr;
 	}
 	pClient->SetSocket(hSocket);
@@ -137,7 +137,7 @@ CClientSocket* CCltSocketManager::ActiveOneConnection(SOCKET hSocket)
 	pClient->SetSrvIndex(0);
 	m_mapClientConnect[i64Index] = pClient;
 	++m_iClientNums;
-	dzlog_info("ActiveOneConnection m_iClientNums=%d, i64Index=%lld", m_iClientNums, i64Index);
+	loggerIns()->info("ActiveOneConnection m_iClientNums={}, i64Index={}", m_iClientNums, i64Index);
 	LeaveCriticalSection(&m_csConnectLock);
 	return pClient;
 }
@@ -150,7 +150,7 @@ bool CCltSocketManager::CloseConnection(DWORD dwNum)
 	std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.begin();
 	for(;iterClient != m_mapClientConnect.end();)
 	{
-		dzlog_info("CloseConnection dwNum=%d i64Index=%lld, i64SrvIndex=%lld, m_iClientNums=%d", 
+		loggerIns()->info("CloseConnection dwNum={} i64Index={}, i64SrvIndex={}, m_iClientNums={}", 
 			dwNum, iterClient->first, iterClient->second->GetSrvIndex(), m_iClientNums);
 		ReleaseOneConnection(iterClient->first, false);
 		iterClient = m_mapClientConnect.erase(iterClient);
@@ -169,11 +169,6 @@ bool CCltSocketManager::CloseConnection(DWORD dwNum)
 /************************************************************************/
 yClientImpl::yClientImpl()
 {
-	char szPath[MAX_PATH] = {0};
-	GetCurrentDirectory(MAX_PATH, szPath);
-	std::string strFullPath = szPath;
-	strFullPath += "/conf/zlog_conf.conf";
-	int iRet = dzlog_init(strFullPath.c_str(), "my_cat");
 	m_bWorking = false;
 	m_iWSAInitResult = -1;
 	m_dwIoThreadNum = 0;
@@ -185,14 +180,13 @@ yClientImpl::yClientImpl()
 	m_pCltSocketManage = nullptr;
 	m_strServerIp = "";
 	m_usServerPort = 0;
-	dzlog_debug("constructor yClientImpl finish! iRet=%d", iRet);
+	loggerIns()->debug("constructor yClientImpl finish!");
 }
 
 yClientImpl::~yClientImpl()
 {
 	DisConnectServer();
-	dzlog_debug("distructor yClientImpl finish!");
-	zlog_fini();
+	loggerIns()->debug("distructor yClientImpl finish!");
 }
 
 //发送数据
@@ -208,7 +202,7 @@ int yClientImpl::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dw
 //停止服务
 int yClientImpl::DisConnectServer()
 {
-	dzlog_debug("DisConnectServer!");
+	loggerIns()->debug("DisConnectServer!");
 	m_bWorking = false;
 	//关闭完成端口
 	if (NULL != m_hCompletionPort)
@@ -275,10 +269,10 @@ int yClientImpl::DisConnectServer()
 
 int yClientImpl::ConnectServer(std::string strIp, unsigned short usPort, unsigned short usConnectNum)
 {
-	dzlog_debug("ConnectServer strIp=%s, usPort=%d, usConnectNum=%d", strIp.c_str(), usPort, usConnectNum);
+	loggerIns()->debug("ConnectServer strIp=%s, usPort={}, usConnectNum={}", strIp.c_str(), usPort, usConnectNum);
 	if(m_bWorking)
 	{
-		dzlog_warn("ConnectServer is working!");
+		loggerIns()->warn("ConnectServer is working!");
 		return 0;
 	}
 
@@ -365,10 +359,10 @@ int yClientImpl::ConnectServer(std::string strIp, unsigned short usPort, unsigne
 //激活指定数量的客户端连接
 int yClientImpl::ActiveConnect(DWORD dwConnectNum)
 {
-	dzlog_info("ActiveConnect dwConnectNum=%d", dwConnectNum);
+	loggerIns()->info("ActiveConnect dwConnectNum={}", dwConnectNum);
 	if(dwConnectNum <= 0 || m_strServerIp == "" || 0 == m_usServerPort)
 	{
-		dzlog_error("ActiveConnect error! dwConnectNum=%d, m_strServerIp=%s, m_usServerPort=%d", dwConnectNum, m_strServerIp.c_str(), m_usServerPort);
+		loggerIns()->error("ActiveConnect error! dwConnectNum={}, m_strServerIp=%s, m_usServerPort={}", dwConnectNum, m_strServerIp.c_str(), m_usServerPort);
 		return -1;
 	}
 	//连接服务器
@@ -378,7 +372,7 @@ int yClientImpl::ActiveConnect(DWORD dwConnectNum)
 		SOCKET hSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP); 
 		if (hSocket == INVALID_SOCKET)
 		{
-			dzlog_warn("socket error=%d", WSAGetLastError());
+			loggerIns()->warn("socket error={}", WSAGetLastError());
 			continue;
 		}
 
@@ -389,7 +383,7 @@ int yClientImpl::ActiveConnect(DWORD dwConnectNum)
 		//与指定IP地址和端口的服务端连接
 		if (connect(hSocket, (sockaddr *)&serAddr, sizeof(serAddr)) == SOCKET_ERROR) 
 		{
-			dzlog_error("connect error=%d", WSAGetLastError());
+			loggerIns()->error("connect error={}", WSAGetLastError());
 			closesocket(hSocket);
 			continue;
 		}
@@ -401,7 +395,7 @@ int yClientImpl::ActiveConnect(DWORD dwConnectNum)
 			//出错了
 			if(NULL == hCompletionPort || !pClient->OnRecvBegin())
 			{
-				dzlog_warn("CreateIoCompletionPort or OnRecvBegin error!");
+				loggerIns()->warn("CreateIoCompletionPort or OnRecvBegin error!");
 				continue;
 			}
 		}
@@ -412,7 +406,7 @@ int yClientImpl::ActiveConnect(DWORD dwConnectNum)
 //开始工作
 int yClientImpl::StartIOWork(DWORD dwThreadNum)
 {
-	dzlog_info("yClientImpl StartIOWork dwThreadNum=%d!", dwThreadNum);
+	loggerIns()->info("yClientImpl StartIOWork dwThreadNum={}!", dwThreadNum);
 	if(dwThreadNum <= 0 || dwThreadNum >= MAX_WORD_THREAD_NUMS)
 	{
 		return -1;
@@ -446,7 +440,7 @@ int yClientImpl::StartIOWork(DWORD dwThreadNum)
 //开始工作
 int yClientImpl::StartJobWork(DWORD dwThreadNum)
 {
-	dzlog_info("yClientImpl StartJobWork dwThreadNum=%d!", dwThreadNum);
+	loggerIns()->info("yClientImpl StartJobWork dwThreadNum={}!", dwThreadNum);
 	if(dwThreadNum <= 0 || dwThreadNum >= MAX_WORD_THREAD_NUMS)
 	{
 		return -1;
@@ -505,18 +499,18 @@ unsigned __stdcall yClientImpl::IOThreadProc(LPVOID pParam)
 		pClient = nullptr;
 		pOverLapped = nullptr;
 		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&pClient, &lpOverlapped, INFINITE);
-		dzlog_debug("IOThreadProc iThreadIndex=%d, dwTransferred=%d, bIoRet=%d", iThreadIndex, dwTransferred, bIoRet);
+		loggerIns()->debug("IOThreadProc iThreadIndex={}, dwTransferred={}, bIoRet={}", iThreadIndex, dwTransferred, bIoRet);
 		if(!bIoRet)
 		{
 			DWORD dwIoError = GetLastError();
-			dzlog_warn("GetQueuedCompletionStatus dwIoError=%d", dwIoError);
+			loggerIns()->warn("GetQueuedCompletionStatus dwIoError={}", dwIoError);
 			//INFINITE条件下不可能WAIT_TIMEOUT
 			if(dwIoError != WAIT_TIMEOUT)
 			{
 				//(ERROR_NETNAME_DELETED == dwIoError || WSAECONNRESET == dwIoError || WSAECONNABORTED == dwIoError)
 				if(nullptr != pClient)
 				{
-					dzlog_info("before close 1, m_i64Index=%lld, i64SrvIndex=%lld", pClient->GetIndex(), pClient->GetSrvIndex());
+					loggerIns()->info("before close 1, m_i64Index={}, i64SrvIndex={}", pClient->GetIndex(), pClient->GetSrvIndex());
 					pCltSocketManage->CloseOneConnection(pClient);
 					continue;
 				}
@@ -526,8 +520,8 @@ unsigned __stdcall yClientImpl::IOThreadProc(LPVOID pParam)
 		{
 			if(nullptr != pClient)
 			{
-				dzlog_debug("m_i64Index=%lld, i64SrvIndex=%lld, lpOverlapped=%x, send=%x, recv=%x", 
-					pClient->GetIndex(), pClient->GetSrvIndex(), lpOverlapped, &pClient->m_SendOverData.OverLapped, pClient->m_RecvOverData.OverLapped);
+				loggerIns()->debug("m_i64Index={}, i64SrvIndex={}, lpOverlapped={}, send={}, recv={}", 
+					pClient->GetIndex(), pClient->GetSrvIndex(), (void*)(lpOverlapped), (void*)(&pClient->m_SendOverData.OverLapped), (void*)(&pClient->m_RecvOverData.OverLapped));
 			}
 			pOverLapped = CONTAINING_RECORD(lpOverlapped, sOverLapped, OverLapped);
 		}
@@ -539,16 +533,16 @@ unsigned __stdcall yClientImpl::IOThreadProc(LPVOID pParam)
 			{				
 				::SetEvent(hThreadEvent);				
 			}
-			dzlog_info("IOThreadProc exit! iThreadIndex=%d", iThreadIndex);
+			loggerIns()->info("IOThreadProc exit! iThreadIndex={}", iThreadIndex);
 			return 0;
 		}
 
-		dzlog_debug("GetQueuedCompletionStatus m_i64Index=%lld, i64SrvIndex=%lld, dwTransferred=%d, uOperationType=%d, send OperationType=%d, recv OperationType=%d", 
+		loggerIns()->debug("GetQueuedCompletionStatus m_i64Index={}, i64SrvIndex={}, dwTransferred={}, uOperationType={}, send OperationType={}, recv OperationType={}", 
 			pClient->GetIndex(), pClient->GetSrvIndex(), dwTransferred, pOverLapped->uOperationType, pClient->m_SendOverData.uOperationType, pClient->m_RecvOverData.uOperationType);
 		//断开连接了
 		if ((0 == dwTransferred) && (SOCKET_REV_FINISH == pOverLapped->uOperationType))
 		{
-			dzlog_info("before close 2, m_i64Index=%lld, i64SrvIndex=%lld", pClient->GetIndex(), pClient->GetSrvIndex());
+			loggerIns()->info("before close 2, m_i64Index={}, i64SrvIndex={}", pClient->GetIndex(), pClient->GetSrvIndex());
 			pCltSocketManage->CloseOneConnection(pClient);
 			continue;
 		}
@@ -556,12 +550,12 @@ unsigned __stdcall yClientImpl::IOThreadProc(LPVOID pParam)
 		bool bSucc = pCltSocketManage->ProcessIOMessage(pClient, pOverLapped, dwTransferred);		
 		if(!bSucc)
 		{
-			dzlog_info("before close 3, m_i64Index=%lld, i64SrvIndex=%lld", pClient->GetIndex(), pClient->GetSrvIndex());
+			loggerIns()->info("before close 3, m_i64Index={}, i64SrvIndex={}", pClient->GetIndex(), pClient->GetSrvIndex());
 			pCltSocketManage->CloseOneConnection(pClient);
-			dzlog_error("uOperationType=%d return error!", pOverLapped->uOperationType);
+			loggerIns()->error("uOperationType={} return error!", pOverLapped->uOperationType);
 		}
 	}
-	dzlog_info("IOThreadProc exit! iThreadIndex=%d", iThreadIndex);
+	loggerIns()->info("IOThreadProc exit! iThreadIndex={}", iThreadIndex);
 	return 0;
 }
 
@@ -586,7 +580,7 @@ unsigned __stdcall yClientImpl::JobThreadProc(LPVOID pParam)
 	while (true)
 	{
 		WaitForSingleObject(hJobEvent, INFINITE);
-		dzlog_debug("JobThreadProc get single! iThreadIndex=%d", iThreadIndex);
+		loggerIns()->debug("JobThreadProc get single! iThreadIndex={}", iThreadIndex);
 		if(pCltSocketManage->GetIsShutDown())
 		{
 			break;
@@ -599,7 +593,7 @@ unsigned __stdcall yClientImpl::JobThreadProc(LPVOID pParam)
 			//LeaveCriticalSection(&pClientManager->m_csEvent);
 		}
 	}
-	dzlog_info("JobThreadProc exit! iThreadIndex=%d", iThreadIndex);
+	loggerIns()->info("JobThreadProc exit! iThreadIndex={}", iThreadIndex);
 	SetEvent(hThreadEvent);
 	return 0;
 }
@@ -607,7 +601,7 @@ unsigned __stdcall yClientImpl::JobThreadProc(LPVOID pParam)
 //测试用
 int yClientImpl::StartTest()
 {
-	dzlog_info("yClientImpl StartTest!");
+	loggerIns()->info("yClientImpl StartTest!");
 	HANDLE hThreadHandle = NULL;
 	UINT uThreadID = 0;
 	sThreadData threadData;
@@ -652,7 +646,7 @@ unsigned __stdcall yClientImpl::TestThreadProc(LPVOID pParam)
 	{
 		WaitForSingleObject(hTestEvent, 5000);
 		ResetEvent(hTestEvent);
-		dzlog_debug("TestThreadProc get single! iThreadIndex=%d", iThreadIndex);
+		loggerIns()->debug("TestThreadProc get single! iThreadIndex={}", iThreadIndex);
 		//没有任务了
 		if(pCltSocketManage->GetIsShutDown())
 		{
@@ -666,7 +660,7 @@ unsigned __stdcall yClientImpl::TestThreadProc(LPVOID pParam)
 		pClientSocket->ActiveConnect(iRandConnect);
 		pCltSocketManage->CloseConnection(iRandConnect);
 	}
-	dzlog_info("TestThreadProc exit! iThreadIndex=%d", iThreadIndex);
+	loggerIns()->info("TestThreadProc exit! iThreadIndex={}", iThreadIndex);
 	SetEvent(hThreadEvent);
 	return 0;
 }

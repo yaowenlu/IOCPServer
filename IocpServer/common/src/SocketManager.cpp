@@ -1,5 +1,6 @@
 #include "SocketManager.h"
 #include "CommEvent.h"
+#include "SpdlogDef.h"
 
 CSocketManager::CSocketManager()
 {
@@ -46,7 +47,7 @@ CClientSocket* CSocketManager::ActiveOneConnection(SOCKET hSocket)
 	if(nullptr == pClient)
 	{
 		LeaveCriticalSection(&m_csConnectLock);
-		dzlog_error("new CClientSocket fail");
+		loggerIns()->error("new CClientSocket fail");
 		return nullptr;
 	}
 	pClient->SetSocket(hSocket);
@@ -59,7 +60,7 @@ CClientSocket* CSocketManager::ActiveOneConnection(SOCKET hSocket)
 	pClient->SetIndex(i64Index);
 	m_mapClientConnect[i64Index] = pClient;
 	++m_iClientNums;
-	dzlog_info("ActiveOneConnection m_iClientNums=%d, m_i64UniqueIndex=%lld", m_iClientNums, m_i64UniqueIndex);
+	loggerIns()->info("ActiveOneConnection m_iClientNums={}, m_i64UniqueIndex={}", m_iClientNums, m_i64UniqueIndex);
 	LeaveCriticalSection(&m_csConnectLock);
 	return pClient;
 }
@@ -73,11 +74,11 @@ bool CSocketManager::CloseOneConnection(CClientSocket *pClient, unsigned __int64
 {
 	if(nullptr != pClient)
 	{
-		dzlog_info("CloseOneConnection begin pClient=%x, i64Index=%lld, i64SrvIndex=%lld", pClient, pClient->GetIndex(), pClient->GetSrvIndex());
+		loggerIns()->info("CloseOneConnection begin pClient={}, i64Index={}, i64SrvIndex={}", (void *)(pClient), pClient->GetIndex(), pClient->GetSrvIndex());
 	}
 	else
 	{
-		dzlog_info("CloseOneConnection begin i64Index=%lld", i64Index);
+		loggerIns()->info("CloseOneConnection begin i64Index={}", i64Index);
 	}
 	//效验数据
 	if (0 == i64Index && nullptr != pClient) 
@@ -91,7 +92,7 @@ bool CSocketManager::CloseOneConnection(CClientSocket *pClient, unsigned __int64
 
 	EnterCriticalSection(&m_csConnectLock);
 	ReleaseOneConnection(i64Index);
-	dzlog_info("CloseOneConnection end i64Index=%lld, i64SrvIndex=%lld, m_iClientNums=%d", i64Index, pClient->GetSrvIndex(), m_iClientNums);
+	loggerIns()->info("CloseOneConnection end i64Index={}, i64SrvIndex={}, m_iClientNums={}", i64Index, pClient->GetSrvIndex(), m_iClientNums);
 	LeaveCriticalSection(&m_csConnectLock);
 	return true;
 }
@@ -102,7 +103,7 @@ void CSocketManager::ReleaseOneConnection(unsigned __int64 i64Index, bool bErase
 	std::map<unsigned __int64, CClientSocket*>::iterator iterFind = m_mapClientConnect.find(i64Index);
 	if(iterFind == m_mapClientConnect.end() || nullptr == iterFind->second)
 	{
-		dzlog_warn("ReleaseOneConnection i64Index=%lld not exist!", i64Index);
+		loggerIns()->warn("ReleaseOneConnection i64Index={} not exist!", i64Index);
 		return;
 	}
 
@@ -133,7 +134,7 @@ void CSocketManager::ReleaseOneConnection(unsigned __int64 i64Index, bool bErase
 ********************************/
 bool CSocketManager::CloseAllConnection()
 {
-	dzlog_info("CSocketManager CloseAllConnection! m_iClientNums=%d", m_iClientNums);
+	loggerIns()->info("CSocketManager CloseAllConnection! m_iClientNums={}", m_iClientNums);
 	EnterCriticalSection(&m_csConnectLock);
 	//释放所有连接的客户端
 	std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.begin();
@@ -180,11 +181,11 @@ bool CSocketManager::ProcessIOMessage(CClientSocket *pClient, sOverLapped *pOver
 {
 	if(nullptr == pClient || nullptr == pOverLapped)
 	{
-		dzlog_error("ProcessIOMessage pClient=%x, pOverLapped=%x", pClient, pOverLapped);
+		loggerIns()->error("ProcessIOMessage pClient={}, pOverLapped={}", (void *)(pClient), (void *)(pOverLapped));
 		return false;
 	}
 
-	dzlog_debug("ProcessIOMessage m_i64Index=%lld, i64SrvIndex=%lld, uOperationType=%d, dwIOSize=%d", 
+	loggerIns()->debug("ProcessIOMessage m_i64Index={}, i64SrvIndex={}, uOperationType={}, dwIOSize={}", 
 		pClient->GetIndex(), pClient->GetSrvIndex(), pOverLapped->uOperationType, dwIOSize);
 	switch(pOverLapped->uOperationType)
 	{
@@ -225,7 +226,7 @@ bool CSocketManager::ProcessIOMessage(CClientSocket *pClient, sOverLapped *pOver
 			return pClient->OnSendCompleted(dwIOSize);
 		}
 	default:
-		dzlog_warn("unknow uOperationType=%d i64Index=%lld, i64SrvIndex=%lld!", pOverLapped->uOperationType, pOverLapped->i64Index, pClient->GetSrvIndex());
+		loggerIns()->warn("unknow uOperationType={} i64Index={}, i64SrvIndex={}!", pOverLapped->uOperationType, pOverLapped->i64Index, pClient->GetSrvIndex());
 		break;
 	}
 	return true;
@@ -282,7 +283,7 @@ bool CSocketManager::AddJob(sJobItem *pJob)
 		}
 		else
 		{
-			dzlog_warn("AddJob failed, too much job! i64Index=%lld", pJob->i64Index);
+			loggerIns()->warn("AddJob failed, too much job! i64Index={}", pJob->i64Index);
 			//释放内存
 			m_jobManager.ReleaseJobItem(pJob);
 		}
@@ -296,7 +297,7 @@ bool CSocketManager::ProcessJob()
 {
 	sJobItem* pJob = nullptr;
 	EnterCriticalSection(&m_csJobLock);
-	dzlog_debug("ProcessJob m_lstJobItem.size()=%d", m_lstJobItem.size());
+	loggerIns()->debug("ProcessJob m_lstJobItem.size()={}", m_lstJobItem.size());
 	if(m_lstJobItem.size() > 0)
 	{
 		pJob = *(m_lstJobItem.begin());
@@ -307,7 +308,7 @@ bool CSocketManager::ProcessJob()
 	{
 		return false;
 	}
-	dzlog_debug("ProcessJob i64Index=%lld, dwBufLen=%d", pJob->i64Index, pJob->dwBufLen);
+	loggerIns()->debug("ProcessJob i64Index={}, dwBufLen={}", pJob->i64Index, pJob->dwBufLen);
 	EnterCriticalSection(&m_csConnectLock);
 	//发送给所有人
 	if(0 == pJob->i64Index)
@@ -342,7 +343,7 @@ bool CSocketManager::ProcessJob()
 		}
 		else
 		{
-			dzlog_warn("ProcessJob i64Index=%lld not exists!", pJob->i64Index);
+			loggerIns()->warn("ProcessJob i64Index={} not exists!", pJob->i64Index);
 		}
 	}
 	LeaveCriticalSection(&m_csConnectLock);
@@ -385,12 +386,12 @@ void CSocketManager::OnBaseTimer()
 //设置定时器
 int CSocketManager::SetTimer(DWORD dwTimerID, DWORD dwDelayTime, int iTimerCount)
 {
-	dzlog_info("SetTimer dwTimerID=%d, dwDelayTime=%d, iTimerCount=%d", dwTimerID, dwDelayTime, iTimerCount);
+	loggerIns()->info("SetTimer dwTimerID={}, dwDelayTime={}, iTimerCount={}", dwTimerID, dwDelayTime, iTimerCount);
 	EnterCriticalSection(&m_csTimerLock);
 	std::map<UINT, sTimer>::iterator itTimer = m_mapAllTimer.find(dwTimerID);
 	if(itTimer != m_mapAllTimer.end())
 	{
-		dzlog_warn("SetTimer dwTimerID=%d exist, update it!", dwTimerID);
+		loggerIns()->warn("SetTimer dwTimerID={} exist, update it!", dwTimerID);
 		itTimer->second.dwBeginTime = GetTickCount();
 		itTimer->second.dwDelayTime = dwDelayTime;
 		itTimer->second.dwEnterTime = itTimer->second.dwBeginTime + itTimer->second.dwDelayTime;
@@ -413,7 +414,7 @@ int CSocketManager::SetTimer(DWORD dwTimerID, DWORD dwDelayTime, int iTimerCount
 //触发定时器
 int CSocketManager::OnTimer(DWORD dwTimerID)
 {
-	dzlog_info("OnTimer begin dwTimerID=%d", dwTimerID);
+	loggerIns()->info("OnTimer begin dwTimerID={}", dwTimerID);
 	switch(dwTimerID)
 	{
 	case TIMER_ID_KEEP_ALIVE:
@@ -424,19 +425,19 @@ int CSocketManager::OnTimer(DWORD dwTimerID)
 	default:
 		break;
 	}
-	dzlog_info("OnTimer finish dwTimerID=%d", dwTimerID);
+	loggerIns()->info("OnTimer finish dwTimerID={}", dwTimerID);
 	return 0;
 }
 
 //删除定时器
 int CSocketManager::KillTimer(DWORD dwTimerID)
 {
-	dzlog_info("KillTimer dwTimerID=%d", dwTimerID);
+	loggerIns()->info("KillTimer dwTimerID={}", dwTimerID);
 	EnterCriticalSection(&m_csTimerLock);
 	std::map<UINT, sTimer>::iterator itTimer = m_mapAllTimer.find(dwTimerID);
 	if(itTimer == m_mapAllTimer.end())
 	{
-		dzlog_warn("KillTimer dwTimerID=%d not exist!", dwTimerID);
+		loggerIns()->warn("KillTimer dwTimerID={} not exist!", dwTimerID);
 	}
 	else
 	{

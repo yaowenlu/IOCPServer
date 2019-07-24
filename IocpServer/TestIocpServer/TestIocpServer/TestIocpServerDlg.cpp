@@ -195,12 +195,12 @@ void CTestIocpServerDlg::OnBnClickedButtonStartService()
 	int iIoThreadNum = atoi(szNum);
 
 	CString strLog;
-	strLog.Format("StartService iListenPort=%d, iWorkThreadNum=%d", iListenPort, iWorkThreadNum);
+	strLog.Format("StartService iListenPort{}, iWorkThreadNum{}", iListenPort, iWorkThreadNum);
 	m_lstLogs.InsertItem(m_lstLogs.GetItemCount(), strLog);
 	int iRet = m_pServerImpl->StartService(iListenPort, iIoThreadNum, iWorkThreadNum);
 	if(0 != iRet)
 	{
-		strLog.Format("StartService ERROR iRet=%d", iRet);
+		strLog.Format("StartService ERROR iRet{}", iRet);
 	}
 	else
 	{
@@ -217,7 +217,7 @@ void CTestIocpServerDlg::OnBnClickedButtonStopService()
 	CString strLog;
 	if(0 != iRet)
 	{
-		strLog.Format("StopService ERROR iRet=%d", iRet);
+		strLog.Format("StopService ERROR iRet{}", iRet);
 	}
 	else
 	{
