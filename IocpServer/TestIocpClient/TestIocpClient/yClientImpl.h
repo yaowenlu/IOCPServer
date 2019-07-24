@@ -35,13 +35,31 @@ struct sThreadData
 	yClientImpl* pClientSocket;
 };
 
+class CCltClientSocket:public CClientSocket
+{
+public:
+	CCltClientSocket();
+	~CCltClientSocket();
+
+	//处理消息
+	virtual void HandleMsg(void *pMsgBuf, DWORD dwBufLen);
+	//设置服务端索引
+	void SetSrvIndex(unsigned __int64 i64SrvIndex){m_i64SrvIndex = i64SrvIndex;}
+	//获取服务端索引
+	unsigned __int64 GetSrvIndex(){return m_i64SrvIndex;}
+private:
+	unsigned __int64 m_i64SrvIndex;
+};
+
 //客户端管理类
 class CCltSocketManager:public CSocketManager
 {
 public:
-public:
-	CCltSocketManager(){};
-	~CCltSocketManager(){};
+	CCltSocketManager();
+	~CCltSocketManager();
+
+	//收到一个连接
+	virtual CClientSocket* ActiveOneConnection(SOCKET hSocket);
 
 	//关闭指定数量的连接
 	bool CloseConnection(DWORD dwNum);

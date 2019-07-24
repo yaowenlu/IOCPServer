@@ -5,6 +5,98 @@
 #pragma comment(lib,"ws2_32.lib")
 #pragma comment(lib,"zlog.lib")
 
+
+CSrvClientSocket::CSrvClientSocket()
+{
+
+};
+
+
+CSrvClientSocket::~CSrvClientSocket()
+{
+
+}
+
+//处理消息
+void CSrvClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
+{
+	__super::HandleMsg(pMsgBuf, dwBufLen);
+	if(nullptr == pMsgBuf || dwBufLen < sizeof(NetMsgHead))
+	{
+		dzlog_error("HandleMsg m_i64Index=%lld, pMsgBuf=%x, dwBufLen=%d", m_i64Index, pMsgBuf, dwBufLen);
+		return;
+	}
+
+	NetMsgHead* pMsgHead = reinterpret_cast<NetMsgHead*>(pMsgBuf);
+	//根据不同的消息ID做处理
+	if(pMsgHead)
+	{
+		dzlog_debug("HandleMsg m_i64Index=%lld, dwMsgSize=%d, dwMainID=%d, dwAssID=%d, dwHandleCode=%d, dwReserve=%d", 
+			m_i64Index, pMsgHead->dwMsgSize, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode, pMsgHead->dwReserve);
+		DWORD dwDataLen = dwBufLen - sizeof(NetMsgHead);
+		BYTE *pDataBuf = (BYTE*)pMsgBuf + sizeof(NetMsgHead);
+		SendData(pDataBuf, dwDataLen, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode);
+	}
+	else
+	{
+		dzlog_error("HandleMsg m_i64Index=%lld, pMsgHead is null!", m_i64Index);
+	}
+	return;
+}
+
+CSrvSocketManager::CSrvSocketManager()
+{
+
+};
+
+
+CSrvSocketManager::~CSrvSocketManager()
+{
+
+}
+
+//收到一个连接
+CClientSocket* CSrvSocketManager::ActiveOneConnection(SOCKET hSocket)
+{
+	if(INVALID_SOCKET == hSocket)
+	{
+		return nullptr;
+	}
+
+	EnterCriticalSection(&m_csConnectLock);
+	CClientSocket *pClient = nullptr;
+	if(m_lstFreeClientConn.size() > 0)
+	{
+		pClient = *m_lstFreeClientConn.begin();
+		m_lstFreeClientConn.pop_front();
+		pClient->InitData();
+	}
+	else
+	{
+		pClient = new CSrvClientSocket();
+	}
+
+	if(nullptr == pClient)
+	{
+		LeaveCriticalSection(&m_csConnectLock);
+		dzlog_error("new CSrvClientSocket fail");
+		return nullptr;
+	}
+	pClient->SetSocket(hSocket);
+	__int64 i64Index = ++m_i64UniqueIndex;
+	if(i64Index <= 0)
+	{
+		m_i64UniqueIndex = 1;
+		i64Index = 1;
+	}
+	pClient->SetIndex(i64Index);
+	m_mapClientConnect[i64Index] = pClient;
+	++m_iClientNums;
+	dzlog_info("ActiveOneConnection m_iClientNums=%d, i64Index=%lld", m_iClientNums, i64Index);
+	LeaveCriticalSection(&m_csConnectLock);
+	return pClient;
+}
+
 yServerImpl::yServerImpl()
 {
 	char szPath[MAX_PATH] = {0};
@@ -363,11 +455,14 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 		return 0;
 	}
 	LPOVERLAPPED lpOverlapped = nullptr;
+	DWORD dwTransferred = 0;
+	CClientSocket *pClient = nullptr;
+	sOverLapped *pOverLapped = nullptr;
 	while (true)
 	{
-		DWORD dwTransferred = 0;
-		CClientSocket *pClient = nullptr;
-		sOverLapped *pOverLapped = nullptr;
+		dwTransferred = 0;
+		pClient = nullptr;
+		pOverLapped = nullptr;
 		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&pClient, &lpOverlapped, INFINITE);
 		dzlog_debug("IOThreadProc iThreadIndex=%d, dwTransferred=%d, bIoRet=%d", iThreadIndex, dwTransferred, bIoRet);
 		if(!bIoRet)
@@ -388,6 +483,11 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 		}
 		if(nullptr != lpOverlapped)
 		{
+			if(nullptr != pClient)
+			{
+				dzlog_debug("m_i64Index=%lld, lpOverlapped=%x, send=%x, recv=%x", 
+					pClient->GetIndex(), lpOverlapped, &pClient->m_SendOverData.OverLapped, &pClient->m_RecvOverData.OverLapped);
+			}
 			pOverLapped = CONTAINING_RECORD(lpOverlapped, sOverLapped, OverLapped);
 		}
 		//异常
@@ -402,7 +502,8 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 			return 0;
 		}
 
-		dzlog_debug("GetQueuedCompletionStatus m_i64Index=%lld, dwTransferred=%d, uOperationType=%d", pClient->GetIndex(), dwTransferred, pOverLapped->uOperationType);
+		dzlog_debug("GetQueuedCompletionStatus m_i64Index=%lld, dwTransferred=%d, uOperationType=%d, send OperationType=%d, recv OperationType=%d", 
+			pClient->GetIndex(), dwTransferred, pOverLapped->uOperationType, pClient->m_SendOverData.uOperationType, pClient->m_RecvOverData.uOperationType);
 		//断开连接了
 		if ((0 == dwTransferred) && (SOCKET_REV_FINISH == pOverLapped->uOperationType))
 		{
@@ -469,7 +570,9 @@ unsigned __stdcall yServerImpl::ListenThreadProc(LPVOID pParam)
 					}
 
 					//发送连接成功消息
-					pClient->SendData(nullptr, 0, 180, 18, 8);
+					sConnectSucc sConnect;
+					sConnect.i64SrvIndex = pClient->GetIndex();
+					pClient->SendData(&sConnect, sizeof(sConnectSucc), MAIN_FRAME_MSG, ASS_CONNECT_SUCC, 0);
 				}
 			}
 		}

@@ -6,15 +6,152 @@
 #pragma comment(lib,"ws2_32.lib")
 #pragma comment(lib,"zlog.lib")
 
+
+/************************************************************************/
+/*                                                                      */
+/************************************************************************/
+CCltClientSocket::CCltClientSocket()
+{
+	m_i64SrvIndex = 0;
+};
+
+
+CCltClientSocket::~CCltClientSocket()
+{
+
+}
+
+//处理消息
+void CCltClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
+{
+	__super::HandleMsg(pMsgBuf, dwBufLen);
+	if(nullptr == pMsgBuf || dwBufLen < sizeof(NetMsgHead))
+	{
+		dzlog_error("HandleMsg m_i64Index=%lld, i64SrvIndex=%lld, pMsgBuf=%x, dwBufLen=%d", m_i64Index, m_i64SrvIndex, pMsgBuf, dwBufLen);
+		return;
+	}
+
+	NetMsgHead* pMsgHead = reinterpret_cast<NetMsgHead*>(pMsgBuf);
+	//根据不同的消息ID做处理
+	if(pMsgHead)
+	{
+		dzlog_debug("HandleMsg m_i64Index=%lld, i64SrvIndex=%lld, dwMsgSize=%d, dwMainID=%d, dwAssID=%d, dwHandleCode=%d, dwReserve=%d", 
+			m_i64Index, m_i64SrvIndex, pMsgHead->dwMsgSize, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode, pMsgHead->dwReserve);
+		if(MAIN_KEEP_ALIVE == pMsgHead->dwMainID)
+		{
+			switch(pMsgHead->dwAssID)
+			{
+				//心跳直接回应
+			case ASS_KEEP_ALIVE:
+				{
+					SendData(nullptr, 0, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode);
+					break;
+				}
+			default:
+				break;
+			}
+		}
+		//框架消息
+		else if(MAIN_FRAME_MSG == pMsgHead->dwMainID)
+		{
+			switch(pMsgHead->dwAssID)
+			{
+				//连接成功消息
+			case ASS_CONNECT_SUCC:
+				{
+					DWORD dwDateLen = dwBufLen - sizeof(NetMsgHead);
+					if(dwDateLen != sizeof(sConnectSucc))
+					{
+						dzlog_error("ASS_CONNECT_SUCC dwDateLen=%d != sizeof(sConnectSucc)=%d", dwDateLen, sizeof(sConnectSucc));
+						break;
+					}
+					sConnectSucc* pConnectSucc = reinterpret_cast<sConnectSucc*>(pMsgHead+1);
+					if(nullptr != pConnectSucc)
+					{
+						m_i64SrvIndex = pConnectSucc->i64SrvIndex;
+					}
+					break;
+				}
+			default:
+				break;
+			}
+		}
+	}
+	else
+	{
+		dzlog_error("HandleMsg m_i64Index=%lld, i64SrvIndex=%lld, pMsgHead is null!", m_i64Index, m_i64SrvIndex);
+	}
+	return;
+}
+
+
+/************************************************************************/
+/*                                                                      */
+/************************************************************************/
+CCltSocketManager::CCltSocketManager()
+{
+
+};
+
+
+CCltSocketManager::~CCltSocketManager()
+{
+
+}
+
+//收到一个连接
+CClientSocket* CCltSocketManager::ActiveOneConnection(SOCKET hSocket)
+{
+	if(INVALID_SOCKET == hSocket)
+	{
+		return nullptr;
+	}
+
+	EnterCriticalSection(&m_csConnectLock);
+	CClientSocket *pClient = nullptr;
+	if(m_lstFreeClientConn.size() > 0)
+	{
+		pClient = *m_lstFreeClientConn.begin();
+		m_lstFreeClientConn.pop_front();
+		pClient->InitData();
+	}
+	else
+	{
+		pClient = new CCltClientSocket();
+	}
+
+	if(nullptr == pClient)
+	{
+		LeaveCriticalSection(&m_csConnectLock);
+		dzlog_error("new CSrvClientSocket fail");
+		return nullptr;
+	}
+	pClient->SetSocket(hSocket);
+	__int64 i64Index = ++m_i64UniqueIndex;
+	if(i64Index <= 0)
+	{
+		m_i64UniqueIndex = 1;
+		i64Index = 1;
+	}
+	pClient->SetIndex(i64Index);
+	pClient->SetSrvIndex(0);
+	m_mapClientConnect[i64Index] = pClient;
+	++m_iClientNums;
+	dzlog_info("ActiveOneConnection m_iClientNums=%d, i64Index=%lld", m_iClientNums, i64Index);
+	LeaveCriticalSection(&m_csConnectLock);
+	return pClient;
+}
+
 //关闭指定数量的连接
 bool CCltSocketManager::CloseConnection(DWORD dwNum)
 {
 	EnterCriticalSection(&m_csConnectLock);
 	DWORD dwCloseNum = 0;
 	std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.begin();
-	for(;iterClient != m_mapClientConnect.end();iterClient++)
+	for(;iterClient != m_mapClientConnect.end();)
 	{
-		dzlog_info("CloseConnection dwNum=%d i64Index=%lld, m_iClientNums=%d", dwNum, iterClient->first, m_iClientNums);
+		dzlog_info("CloseConnection dwNum=%d i64Index=%lld, i64SrvIndex=%lld, m_iClientNums=%d", 
+			dwNum, iterClient->first, iterClient->second->GetSrvIndex(), m_iClientNums);
 		ReleaseOneConnection(iterClient->first, false);
 		iterClient = m_mapClientConnect.erase(iterClient);
 		if(++dwCloseNum >= dwNum)
@@ -26,6 +163,10 @@ bool CCltSocketManager::CloseConnection(DWORD dwNum)
 	return true;
 }
 
+
+/************************************************************************/
+/*                                                                      */
+/************************************************************************/
 yClientImpl::yClientImpl()
 {
 	char szPath[MAX_PATH] = {0};
@@ -354,12 +495,15 @@ unsigned __stdcall yClientImpl::IOThreadProc(LPVOID pParam)
 	{
 		return 0;
 	}
+	DWORD dwTransferred = 0;
+	CClientSocket *pClient = nullptr;
+	sOverLapped *pOverLapped = nullptr;
 	LPOVERLAPPED lpOverlapped = nullptr;
 	while (true)
 	{
-		DWORD dwTransferred = 0;
-		CClientSocket *pClient = nullptr;
-		sOverLapped *pOverLapped = nullptr;
+		dwTransferred = 0;
+		pClient = nullptr;
+		pOverLapped = nullptr;
 		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&pClient, &lpOverlapped, INFINITE);
 		dzlog_debug("IOThreadProc iThreadIndex=%d, dwTransferred=%d, bIoRet=%d", iThreadIndex, dwTransferred, bIoRet);
 		if(!bIoRet)
@@ -372,7 +516,7 @@ unsigned __stdcall yClientImpl::IOThreadProc(LPVOID pParam)
 				//(ERROR_NETNAME_DELETED == dwIoError || WSAECONNRESET == dwIoError || WSAECONNABORTED == dwIoError)
 				if(nullptr != pClient)
 				{
-					dzlog_info("before close 1, m_i64Index=%lld", pClient->GetIndex());
+					dzlog_info("before close 1, m_i64Index=%lld, i64SrvIndex=%lld", pClient->GetIndex(), pClient->GetSrvIndex());
 					pCltSocketManage->CloseOneConnection(pClient);
 					continue;
 				}
@@ -380,6 +524,11 @@ unsigned __stdcall yClientImpl::IOThreadProc(LPVOID pParam)
 		}
 		if(nullptr != lpOverlapped)
 		{
+			if(nullptr != pClient)
+			{
+				dzlog_debug("m_i64Index=%lld, i64SrvIndex=%lld, lpOverlapped=%x, send=%x, recv=%x", 
+					pClient->GetIndex(), pClient->GetSrvIndex(), lpOverlapped, &pClient->m_SendOverData.OverLapped, pClient->m_RecvOverData.OverLapped);
+			}
 			pOverLapped = CONTAINING_RECORD(lpOverlapped, sOverLapped, OverLapped);
 		}
 		//异常
@@ -394,11 +543,12 @@ unsigned __stdcall yClientImpl::IOThreadProc(LPVOID pParam)
 			return 0;
 		}
 
-		dzlog_debug("GetQueuedCompletionStatus m_i64Index=%lld, dwTransferred=%d, uOperationType=%d", pClient->GetIndex(), dwTransferred, pOverLapped->uOperationType);
+		dzlog_debug("GetQueuedCompletionStatus m_i64Index=%lld, i64SrvIndex=%lld, dwTransferred=%d, uOperationType=%d, send OperationType=%d, recv OperationType=%d", 
+			pClient->GetIndex(), pClient->GetSrvIndex(), dwTransferred, pOverLapped->uOperationType, pClient->m_SendOverData.uOperationType, pClient->m_RecvOverData.uOperationType);
 		//断开连接了
 		if ((0 == dwTransferred) && (SOCKET_REV_FINISH == pOverLapped->uOperationType))
 		{
-			dzlog_info("before close 2, m_i64Index=%lld", pClient->GetIndex());
+			dzlog_info("before close 2, m_i64Index=%lld, i64SrvIndex=%lld", pClient->GetIndex(), pClient->GetSrvIndex());
 			pCltSocketManage->CloseOneConnection(pClient);
 			continue;
 		}
@@ -406,7 +556,7 @@ unsigned __stdcall yClientImpl::IOThreadProc(LPVOID pParam)
 		bool bSucc = pCltSocketManage->ProcessIOMessage(pClient, pOverLapped, dwTransferred);		
 		if(!bSucc)
 		{
-			dzlog_info("before close 3, m_i64Index=%lld", pClient->GetIndex());
+			dzlog_info("before close 3, m_i64Index=%lld, i64SrvIndex=%lld", pClient->GetIndex(), pClient->GetSrvIndex());
 			pCltSocketManage->CloseOneConnection(pClient);
 			dzlog_error("uOperationType=%d return error!", pOverLapped->uOperationType);
 		}

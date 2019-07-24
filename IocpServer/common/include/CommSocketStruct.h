@@ -14,10 +14,10 @@ enum
 //SOCKET 重叠 IO 结构
 struct sOverLapped		
 {
-	unsigned __int64 i64Index;//客户端唯一ID
 	OVERLAPPED OverLapped;//重叠结构
 	WSABUF WSABuffer;//数据缓冲
 	UINT uOperationType;//操作类型
+	unsigned __int64 i64Index;//客户端唯一ID
 };
 
 #endif

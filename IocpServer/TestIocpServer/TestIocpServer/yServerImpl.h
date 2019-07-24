@@ -34,12 +34,25 @@ struct sThreadData
 	CSrvSocketManager*	pSrvSocketManage;//管理类指针
 };
 
+class CSrvClientSocket:public CClientSocket
+{
+public:
+	CSrvClientSocket();
+	~CSrvClientSocket();
+
+	//处理消息
+	virtual void HandleMsg(void *pMsgBuf, DWORD dwBufLen);
+};
+
 //服务端Socket管理类
 class CSrvSocketManager:public CSocketManager
 {
 public:
-	CSrvSocketManager(){};
-	~CSrvSocketManager(){};
+	CSrvSocketManager();
+	~CSrvSocketManager();
+
+	//收到一个连接
+	virtual CClientSocket* ActiveOneConnection(SOCKET hSocket);
 };
 
 class yServerImpl

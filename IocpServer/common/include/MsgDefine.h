@@ -14,4 +14,13 @@ struct NetMsgHead
 	DWORD	dwReserve;		//保留字段
 };
 
+#define MAIN_FRAME_MSG		150
+
+#define ASS_CONNECT_SUCC	10
+//连接成功后服务器返回的数据信息
+struct sConnectSucc
+{
+	unsigned __int64 i64SrvIndex;
+};
+
 #endif

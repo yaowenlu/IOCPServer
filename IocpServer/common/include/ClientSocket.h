@@ -22,7 +22,7 @@ class CClientSocket
 {
 public:
 	CClientSocket();
-	~CClientSocket();
+	virtual ~CClientSocket();
 	//初始化数据
 	void InitData();
 
@@ -51,22 +51,25 @@ public:
 	bool OnSendCompleted(DWORD dwSendCount);
 
 	//处理消息
-	void HandleMsg(void *pMsgBuf, DWORD dwBufLen);
+	virtual void HandleMsg(void *pMsgBuf, DWORD dwBufLen);
 
-private:
+	//设置服务端索引
+	virtual void SetSrvIndex(unsigned __int64 i64SrvIndex){ return; }
+
+	//获取服务端索引
+	virtual unsigned __int64 GetSrvIndex(){return 0;}
+
+public:
 	SOCKET m_hSocket;//连接对应的socket
 	unsigned __int64 m_i64Index;//用来识别唯一的客户端连接
 	CRITICAL_SECTION m_csRecvLock;
 	CRITICAL_SECTION m_csSendLock;
 	CRITICAL_SECTION m_csStateLock;
 
-protected:
-	char				m_szSendBuf[SED_SIZE];	//发送数据缓冲区
-	char				m_szRecvBuf[RCV_SIZE];	//数据接收缓冲区
-	long int			m_lBeginTime;			//连接时间
+	char			m_szSendBuf[SED_SIZE];	//发送数据缓冲区
+	char			m_szRecvBuf[RCV_SIZE];	//数据接收缓冲区
+	long int		m_lBeginTime;			//连接时间
 
-	//内部数据
-private:
 	DWORD			m_dwSendBuffLen;	//发送缓冲区长度
 	DWORD			m_dwRecvBuffLen;	//接收缓冲区长度
 	sOverLapped		m_SendOverData;		//发送数据重叠结构

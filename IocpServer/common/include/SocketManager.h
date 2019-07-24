@@ -52,7 +52,7 @@ public:
 	***************************/
 	virtual bool CloseOneConnection(CClientSocket *pClient, unsigned __int64 i64Index = 0);
 	//释放连接资源
-	void ReleaseOneConnection(unsigned __int64 i64Index, bool bErase = true);
+	virtual void ReleaseOneConnection(unsigned __int64 i64Index, bool bErase = true);
 
 	//关闭所有连接
 	/*******************************

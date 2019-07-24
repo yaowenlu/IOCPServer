@@ -73,7 +73,7 @@ bool CSocketManager::CloseOneConnection(CClientSocket *pClient, unsigned __int64
 {
 	if(nullptr != pClient)
 	{
-		dzlog_info("CloseOneConnection begin pClient=%x, i64Index=%lld", pClient, pClient->GetIndex());
+		dzlog_info("CloseOneConnection begin pClient=%x, i64Index=%lld, i64SrvIndex=%lld", pClient, pClient->GetIndex(), pClient->GetSrvIndex());
 	}
 	else
 	{
@@ -91,7 +91,7 @@ bool CSocketManager::CloseOneConnection(CClientSocket *pClient, unsigned __int64
 
 	EnterCriticalSection(&m_csConnectLock);
 	ReleaseOneConnection(i64Index);
-	dzlog_info("CloseOneConnection end i64Index=%lld, m_iClientNums=%d", i64Index, m_iClientNums);
+	dzlog_info("CloseOneConnection end i64Index=%lld, i64SrvIndex=%lld, m_iClientNums=%d", i64Index, pClient->GetSrvIndex(), m_iClientNums);
 	LeaveCriticalSection(&m_csConnectLock);
 	return true;
 }
@@ -184,8 +184,8 @@ bool CSocketManager::ProcessIOMessage(CClientSocket *pClient, sOverLapped *pOver
 		return false;
 	}
 
-	dzlog_debug("ProcessIOMessage m_i64Index=%lld, uOperationType=%d, dwIOSize=%d", 
-		pClient->GetIndex(), pOverLapped->uOperationType, dwIOSize);
+	dzlog_debug("ProcessIOMessage m_i64Index=%lld, i64SrvIndex=%lld, uOperationType=%d, dwIOSize=%d", 
+		pClient->GetIndex(), pClient->GetSrvIndex(), pOverLapped->uOperationType, dwIOSize);
 	switch(pOverLapped->uOperationType)
 	{
 		//开始接收数据
@@ -225,7 +225,7 @@ bool CSocketManager::ProcessIOMessage(CClientSocket *pClient, sOverLapped *pOver
 			return pClient->OnSendCompleted(dwIOSize);
 		}
 	default:
-		dzlog_warn("unknow uOperationType=%d i64Index=%lld!", pOverLapped->uOperationType, pOverLapped->i64Index);
+		dzlog_warn("unknow uOperationType=%d i64Index=%lld, i64SrvIndex=%lld!", pOverLapped->uOperationType, pOverLapped->i64Index, pClient->GetSrvIndex());
 		break;
 	}
 	return true;
