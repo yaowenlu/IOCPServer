@@ -18,13 +18,17 @@ CSrvClientSocket::~CSrvClientSocket()
 }
 
 //处理消息
-void CSrvClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
+bool CSrvClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 {
-	__super::HandleMsg(pMsgBuf, dwBufLen);
+	if (__super::HandleMsg(pMsgBuf, dwBufLen))
+	{
+		return true;
+	}
+
 	if(nullptr == pMsgBuf || dwBufLen < sizeof(NetMsgHead))
 	{
-		loggerIns()->error("HandleMsg m_i64Index={}, pMsgBuf={}, dwBufLen={}", m_i64Index, (void*)(pMsgBuf), dwBufLen);
-		return;
+		loggerIns()->error("HandleMsg m_i64Index={}, pMsgBuf={}, dwBufLen={}", GetIndex(), (void*)(pMsgBuf), dwBufLen);
+		return false;
 	}
 
 	NetMsgHead* pMsgHead = reinterpret_cast<NetMsgHead*>(pMsgBuf);
@@ -32,18 +36,22 @@ void CSrvClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 	if(pMsgHead)
 	{
 		loggerIns()->debug("HandleMsg m_i64Index={}, dwMsgSize={}, dwMainID={}, dwAssID={}, dwHandleCode={}, dwReserve={}", 
-			m_i64Index, pMsgHead->dwMsgSize, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode, pMsgHead->dwReserve);
+			GetIndex(), pMsgHead->dwMsgSize, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode, pMsgHead->dwReserve);
 		DWORD dwDataLen = dwBufLen - sizeof(NetMsgHead);
 		BYTE *pDataBuf = (BYTE*)pMsgBuf + sizeof(NetMsgHead);
 		SendData(pDataBuf, dwDataLen, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode);
 	}
 	else
 	{
-		loggerIns()->error("HandleMsg m_i64Index={}, pMsgHead is null!", m_i64Index);
+		loggerIns()->error("HandleMsg m_i64Index={}, pMsgHead is null!", GetIndex());
 	}
-	return;
+	return true;
 }
 
+
+/************************************************************************/
+/*                                                                      */
+/************************************************************************/
 CSrvSocketManager::CSrvSocketManager()
 {
 
@@ -63,26 +71,29 @@ CClientSocket* CSrvSocketManager::ActiveOneConnection(SOCKET hSocket)
 		return nullptr;
 	}
 
-	EnterCriticalSection(&m_csConnectLock);
 	CClientSocket *pClient = nullptr;
+	EnterCriticalSection(&m_csFreeConnectLock);
 	if(m_lstFreeClientConn.size() > 0)
 	{
 		pClient = *m_lstFreeClientConn.begin();
 		m_lstFreeClientConn.pop_front();
+		LeaveCriticalSection(&m_csFreeConnectLock);
 		pClient->InitData();
 	}
 	else
 	{
+		LeaveCriticalSection(&m_csFreeConnectLock);
 		pClient = new CSrvClientSocket();
 	}
 
 	if(nullptr == pClient)
-	{
-		LeaveCriticalSection(&m_csConnectLock);
+	{	
 		loggerIns()->error("new CSrvClientSocket fail");
 		return nullptr;
 	}
+	pClient->SetManager(this);
 	pClient->SetSocket(hSocket);
+	EnterCriticalSection(&m_csActiveConnectLock);
 	__int64 i64Index = ++m_i64UniqueIndex;
 	if(i64Index <= 0)
 	{
@@ -93,7 +104,7 @@ CClientSocket* CSrvSocketManager::ActiveOneConnection(SOCKET hSocket)
 	m_mapClientConnect[i64Index] = pClient;
 	++m_iClientNums;
 	loggerIns()->info("ActiveOneConnection m_iClientNums={}, i64Index={}", m_iClientNums, i64Index);
-	LeaveCriticalSection(&m_csConnectLock);
+	LeaveCriticalSection(&m_csActiveConnectLock);
 	return pClient;
 }
 
@@ -104,9 +115,8 @@ yServerImpl::yServerImpl()
 	m_dwIoThreadNum = 0;
 	m_dwJobThreadNum = 0;
 	m_hThreadEvent = NULL;
-	m_hJobEvent = NULL;
-	m_hTimerEvent = NULL;
-	m_hCompletionPort = NULL;
+	m_hIoCompletionPort = NULL;
+	m_hJobCompletionPort = NULL;
 	m_hListenThread = NULL;
 	m_lsSocket = INVALID_SOCKET;
 	m_pSrvSocketManager = nullptr;
@@ -145,37 +155,44 @@ int yServerImpl::StopService()
 		m_hListenThread = NULL;
 	}
 
-	//关闭完成端口
-	if (NULL != m_hCompletionPort)
+	//关闭Io完成端口
+	if (NULL != m_hIoCompletionPort)
 	{
 		for (UINT i=0; i<m_dwIoThreadNum; i++)
 		{
-			::PostQueuedCompletionStatus(m_hCompletionPort,0,NULL,NULL);
+			::PostQueuedCompletionStatus(m_hIoCompletionPort,0,NULL,NULL);
 			::WaitForSingleObject(m_hThreadEvent, TIME_OUT);
 			::ResetEvent(m_hThreadEvent);
 		}
 		m_dwIoThreadNum = 0;
-		::CloseHandle(m_hCompletionPort);
-		m_hCompletionPort = NULL;
+		::CloseHandle(m_hIoCompletionPort);
+		m_hIoCompletionPort = NULL;
 	}
 
-	//关闭所有连接客户端,必须在关闭完成端口后调用
-	if(nullptr != m_pSrvSocketManager)
+	//移除事件
+	CCommEvent::GetInstance()->RemoveOneEvent(EVENT_NEW_JOB_ADD);
+	//关闭Job完成端口
+	if (NULL != m_hJobCompletionPort)
+	{
+		//关闭工作线程
+		for (UINT i = 0; i < m_dwJobThreadNum; i++)
+		{
+			::PostQueuedCompletionStatus(m_hJobCompletionPort, 0, NULL, NULL);
+			::WaitForSingleObject(m_hThreadEvent, TIME_OUT);
+			::ResetEvent(m_hThreadEvent);
+		}
+		m_dwJobThreadNum = 0;
+		::CloseHandle(m_hJobCompletionPort);
+		m_hJobCompletionPort = NULL;
+	}
+
+	//等待定时器线程关闭
+	if (nullptr != m_pSrvSocketManager)
 	{
 		m_pSrvSocketManager->SetIsShutDown(true);
+		::WaitForSingleObject(m_hThreadEvent, TIME_OUT);
+		::ResetEvent(m_hThreadEvent);
 	}
-
-	//关闭工作线程
-	SetEvent(m_hJobEvent);
-	::WaitForSingleObject(m_hThreadEvent, TIME_OUT);
-	::ResetEvent(m_hThreadEvent);
-	m_dwJobThreadNum = 0;
-	CCommEvent::GetInstance()->RemoveOneEvent(ENEVT_NEW_JOB_ADD);
-
-	//关闭定时器线程
-	SetEvent(m_hTimerEvent);
-	::WaitForSingleObject(m_hThreadEvent, TIME_OUT);
-	::ResetEvent(m_hThreadEvent);
 
 	//关闭事件
 	if (NULL != m_hThreadEvent)
@@ -183,22 +200,13 @@ int yServerImpl::StopService()
 		::CloseHandle(m_hThreadEvent);
 		m_hThreadEvent = NULL;
 	}
-	if (NULL != m_hJobEvent)
-	{
-		::CloseHandle(m_hJobEvent);
-		m_hJobEvent = NULL;
-	}
-	if (NULL != m_hTimerEvent)
-	{
-		::CloseHandle(m_hTimerEvent);
-		m_hTimerEvent = NULL;
-	}
 
 	if(NO_ERROR == m_iWSAInitResult)
 	{
 		WSACleanup();
 	}
 
+	//关闭所有连接客户端,必须在关闭完成端口后调用
 	if(nullptr != m_pSrvSocketManager)
 	{
 		m_pSrvSocketManager->CloseAllConnection();
@@ -256,22 +264,15 @@ int yServerImpl::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThreadN
 		return CODE_SERVICE_CREATE_EVENT_ERROR;
 	}
 
-	m_hJobEvent = ::CreateEvent(NULL,TRUE,false,NULL);
-	if(NULL == m_hJobEvent)
+	m_hIoCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0 );
+	if(NULL == m_hIoCompletionPort)
 	{
 		StopService();
-		return CODE_SERVICE_CREATE_EVENT_ERROR;
+		return CODE_SERVICE_CREATE_IOCP_ERROR;
 	}
 
-	m_hTimerEvent = ::CreateEvent(NULL,TRUE,false,NULL);
-	if(NULL == m_hTimerEvent)
-	{
-		StopService();
-		return CODE_SERVICE_CREATE_EVENT_ERROR;
-	}
-
-	m_hCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0 );
-	if(NULL == m_hCompletionPort)
+	m_hJobCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+	if (NULL == m_hJobCompletionPort)
 	{
 		StopService();
 		return CODE_SERVICE_CREATE_IOCP_ERROR;
@@ -285,7 +286,7 @@ int yServerImpl::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThreadN
 		return CODE_SERVICE_IO_FAILED;
 	}
 
-	CCommEvent::GetInstance()->AddOneEvent(ENEVT_NEW_JOB_ADD, EventFunc, &m_hJobEvent);
+	CCommEvent::GetInstance()->AddOneEvent(EVENT_NEW_JOB_ADD, EventFunc, &m_hJobCompletionPort);
 	//启动工作线程
 	iRet = StartJobWork(dwJobThreadNum);
 	if(0 != iRet)
@@ -328,9 +329,8 @@ int yServerImpl::StartIOWork(DWORD dwThreadNum)
 	HANDLE hThreadHandle = NULL;
 	UINT uThreadID = 0;
 	sThreadData threadData;
-	threadData.hCompletionPort = m_hCompletionPort;
+	threadData.hCompletionPort = m_hIoCompletionPort;
 	threadData.hThreadEvent = m_hThreadEvent;
-	threadData.hJobEvent = m_hJobEvent;
 	threadData.hLsSocket = NULL;
 	threadData.pSrvSocketManage = m_pSrvSocketManager;
 	m_dwIoThreadNum = 0;
@@ -363,9 +363,8 @@ int yServerImpl::StartJobWork(DWORD dwThreadNum)
 	HANDLE hThreadHandle = NULL;
 	UINT uThreadID = 0;
 	sThreadData threadData;
-	threadData.hCompletionPort = m_hCompletionPort;
+	threadData.hCompletionPort = m_hJobCompletionPort;
 	threadData.hThreadEvent = m_hThreadEvent;
-	threadData.hJobEvent = m_hJobEvent;
 	threadData.hLsSocket = NULL;
 	threadData.pSrvSocketManage = m_pSrvSocketManager;
 	m_dwJobThreadNum = 0;
@@ -414,9 +413,8 @@ int yServerImpl::StartListen(int iPort)
 
 	UINT uThreadID = 0;
 	sThreadData threadData;
-	threadData.hCompletionPort = m_hCompletionPort;
+	threadData.hCompletionPort = m_hIoCompletionPort;
 	threadData.hThreadEvent = m_hThreadEvent;
-	threadData.hJobEvent = m_hJobEvent;
 	threadData.hLsSocket = m_lsSocket;
 	threadData.pSrvSocketManage = m_pSrvSocketManager;
 	threadData.iThreadIndex = 0;
@@ -440,7 +438,6 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 	CSrvSocketManager* pSrvSocketManage = pThreadData->pSrvSocketManage;
 	HANDLE hCompletionPort = pThreadData->hCompletionPort;
 	HANDLE hThreadEvent = pThreadData->hThreadEvent;
-	HANDLE hJobEvent = pThreadData->hJobEvent;
 	int iThreadIndex = pThreadData->iThreadIndex;
 	//线程数据读取完成
 	SetEvent(hThreadEvent);
@@ -448,10 +445,11 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 	{
 		return 0;
 	}
-	LPOVERLAPPED lpOverlapped = nullptr;
+
 	DWORD dwTransferred = 0;
 	CClientSocket *pClient = nullptr;
 	sOverLapped *pOverLapped = nullptr;
+	LPOVERLAPPED lpOverlapped = nullptr;
 	while (true)
 	{
 		dwTransferred = 0;
@@ -471,6 +469,7 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 				{
 					loggerIns()->info("before close 1, m_i64Index={}", pClient->GetIndex());
 					pSrvSocketManage->CloseOneConnection(pClient);
+					pSrvSocketManage->ReleaseOneConnection(pClient);
 					continue;
 				}
 			}
@@ -502,17 +501,12 @@ unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
 		if ((0 == dwTransferred) && (SOCKET_REV_FINISH == pOverLapped->uOperationType))
 		{
 			loggerIns()->info("before close 2, m_i64Index={}", pClient->GetIndex());
-			pSrvSocketManage->CloseOneConnection(pClient, pOverLapped->i64Index);
+			pSrvSocketManage->CloseOneConnection(pClient);
+			pSrvSocketManage->ReleaseOneConnection(pClient);
 			continue;
 		}
 
-		bool bSucc = pSrvSocketManage->ProcessIOMessage(pClient, pOverLapped, dwTransferred);
-		if(!bSucc)
-		{
-			loggerIns()->info("before close 3, m_i64Index={}", pClient->GetIndex());
-			pSrvSocketManage->CloseOneConnection(pClient);
-			loggerIns()->error("uOperationType={} return error!", pOverLapped->uOperationType);
-		}
+		pSrvSocketManage->ProcessIOMessage(pClient, pOverLapped, dwTransferred);
 	}
 	loggerIns()->info("IOThreadProc exit! iThreadIndex={}", iThreadIndex);
 	return 0;
@@ -575,7 +569,8 @@ unsigned __stdcall yServerImpl::ListenThreadProc(LPVOID pParam)
 			loggerIns()->error("ListenThreadProc catch an error!");
 			if (nullptr != pClient) 
 			{
-				pSrvSocketManage->CloseOneConnection(pClient, pClient->GetIndex());
+				pSrvSocketManage->CloseOneConnection(pClient);
+				pSrvSocketManage->ReleaseOneConnection(pClient);
 			}
 		}
 	}
@@ -590,7 +585,7 @@ unsigned __stdcall yServerImpl::JobThreadProc(LPVOID pParam)
 		return 0;
 	}
 	CSrvSocketManager* pSrvSocketManage = pThreadData->pSrvSocketManage;
-	HANDLE hJobEvent = pThreadData->hJobEvent;
+	HANDLE hCompletionPort = pThreadData->hCompletionPort;
 	HANDLE hThreadEvent = pThreadData->hThreadEvent;
 	int iThreadIndex = pThreadData->iThreadIndex;
 	//线程数据读取完成
@@ -600,22 +595,32 @@ unsigned __stdcall yServerImpl::JobThreadProc(LPVOID pParam)
 		return 0;
 	}
 
+	DWORD dwTransferred = 0;
+	DWORD dwCompleteKey = 0;
+	LPOVERLAPPED *pOverLapped = nullptr;
 	while (true)
 	{
-		WaitForSingleObject(hJobEvent, INFINITE);
-		loggerIns()->debug("JobThreadProc get single! iThreadIndex={}", iThreadIndex);
-		if(pSrvSocketManage->GetIsShutDown())
+		dwTransferred = 0;
+		pOverLapped = nullptr;
+		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&dwCompleteKey, pOverLapped, INFINITE);
+		loggerIns()->debug("JobThreadProc get single! iThreadIndex={}, bIoRet={}, dwTransferred={}", iThreadIndex, bIoRet, dwTransferred);
+		if (!bIoRet || 0 == dwTransferred)
 		{
-			break;
+			loggerIns()->info("JobThreadProc exit! iThreadIndex={}, bIoRet={}, dwTransferred={}", iThreadIndex, bIoRet, dwTransferred);
+			//主动退出的
+			if (0 == dwTransferred)
+			{
+				SetEvent(hThreadEvent);
+			}
+			return 0;
 		}
-		//没有任务了
-		if(!pSrvSocketManage->ProcessJob())
+		
+		//处理任务
+		while (pSrvSocketManage->ProcessJob())
 		{
-			ResetEvent(hJobEvent);
+
 		}
 	}
-	loggerIns()->info("JobThreadProc exit! iThreadIndex={}", iThreadIndex);
-	SetEvent(hThreadEvent);
 	return 0;
 }
 
@@ -628,7 +633,6 @@ int yServerImpl::StartTimer()
 	sThreadData threadData;
 	threadData.hCompletionPort = NULL;
 	threadData.hThreadEvent = m_hThreadEvent;
-	threadData.hJobEvent = m_hTimerEvent;
 	threadData.hLsSocket = NULL;
 	threadData.pSrvSocketManage = m_pSrvSocketManager;
 	hThreadHandle = (HANDLE)::_beginthreadex(nullptr, 0, TimerThreadProc, &threadData, 0, &uThreadID);
@@ -643,6 +647,7 @@ int yServerImpl::StartTimer()
 	return 0;
 }
 
+//定时器线程
 unsigned __stdcall yServerImpl::TimerThreadProc(LPVOID pParam)
 {
 	sThreadData* pThreadData = reinterpret_cast<sThreadData*>(pParam);
@@ -651,7 +656,6 @@ unsigned __stdcall yServerImpl::TimerThreadProc(LPVOID pParam)
 		return 0;
 	}
 	CSrvSocketManager* pSrvSocketManage = pThreadData->pSrvSocketManage;
-	HANDLE hTimerEvent = pThreadData->hJobEvent;
 	HANDLE hThreadEvent = pThreadData->hThreadEvent;
 	int iThreadIndex = pThreadData->iThreadIndex;
 	//线程数据读取完成
@@ -663,9 +667,12 @@ unsigned __stdcall yServerImpl::TimerThreadProc(LPVOID pParam)
 
 	while (true)
 	{
-		WaitForSingleObject(hTimerEvent, 10);
-		ResetEvent(hTimerEvent);
+		if (pSrvSocketManage->GetIsShutDown())
+		{
+			break;
+		}
 		pSrvSocketManage->OnBaseTimer();
+		::Sleep(10);
 	}
 	loggerIns()->info("TimerThreadProc exit!");
 	SetEvent(hThreadEvent);
@@ -675,9 +682,17 @@ unsigned __stdcall yServerImpl::TimerThreadProc(LPVOID pParam)
 //事件回调函数
 int yServerImpl::EventFunc(string strEventName, void *pFuncParam)
 {
-	if(ENEVT_NEW_JOB_ADD == strEventName)
+	if(EVENT_NEW_JOB_ADD == strEventName)
 	{
-		SetEvent(*(HANDLE *)(pFuncParam));
+		HANDLE* pCompletionPort = reinterpret_cast<HANDLE*>(pFuncParam);
+		if (nullptr != pCompletionPort)
+		{
+			::PostQueuedCompletionStatus(*pCompletionPort, 1, NULL, NULL);
+		}
+		else
+		{
+			loggerIns()->warn("EventFunc strEventName={} pCompletionPort is null!", strEventName);
+		}
 	}
 	return 1;
 }

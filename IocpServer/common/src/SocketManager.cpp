@@ -11,14 +11,16 @@ CSocketManager::CSocketManager()
 	m_iClientNums = 0;
 	m_i64UniqueIndex = 0;
 
-	InitializeCriticalSection(&m_csConnectLock);
+	InitializeCriticalSection(&m_csActiveConnectLock);
+	InitializeCriticalSection(&m_csFreeConnectLock);
 	InitializeCriticalSection(&m_csJobLock);
 	InitializeCriticalSection(&m_csTimerLock);
 }
 
 CSocketManager::~CSocketManager()
 {
-	DeleteCriticalSection(&m_csConnectLock);
+	DeleteCriticalSection(&m_csActiveConnectLock);
+	DeleteCriticalSection(&m_csFreeConnectLock);
 	DeleteCriticalSection(&m_csJobLock);
 	DeleteCriticalSection(&m_csTimerLock);
 }
@@ -31,26 +33,29 @@ CClientSocket* CSocketManager::ActiveOneConnection(SOCKET hSocket)
 		return nullptr;
 	}
 
-	EnterCriticalSection(&m_csConnectLock);
+	
 	CClientSocket *pClient = nullptr;
+	EnterCriticalSection(&m_csFreeConnectLock);
 	if(m_lstFreeClientConn.size() > 0)
 	{
 		pClient = *m_lstFreeClientConn.begin();
 		m_lstFreeClientConn.pop_front();
+		LeaveCriticalSection(&m_csFreeConnectLock);
 		pClient->InitData();
 	}
 	else
 	{
+		LeaveCriticalSection(&m_csFreeConnectLock);
 		pClient = new CClientSocket();
 	}
-
+	
 	if(nullptr == pClient)
 	{
-		LeaveCriticalSection(&m_csConnectLock);
 		loggerIns()->error("new CClientSocket fail");
 		return nullptr;
 	}
 	pClient->SetSocket(hSocket);
+	EnterCriticalSection(&m_csActiveConnectLock);
 	__int64 i64Index = ++m_i64UniqueIndex;
 	if(i64Index <= 0)
 	{
@@ -61,69 +66,60 @@ CClientSocket* CSocketManager::ActiveOneConnection(SOCKET hSocket)
 	m_mapClientConnect[i64Index] = pClient;
 	++m_iClientNums;
 	loggerIns()->info("ActiveOneConnection m_iClientNums={}, m_i64UniqueIndex={}", m_iClientNums, m_i64UniqueIndex);
-	LeaveCriticalSection(&m_csConnectLock);
+	LeaveCriticalSection(&m_csActiveConnectLock);
 	return pClient;
 }
 
 //关闭一个连接
-/***************************
-请不要直接调用此函数，要关闭一个连接调用对应客户端的CloseSocket函数即可，
-完成端口会自动调用此函数释放连接占用的资源
-***************************/
-bool CSocketManager::CloseOneConnection(CClientSocket *pClient, unsigned __int64 i64Index)
+bool CSocketManager::CloseOneConnection(CClientSocket *pClient)
 {
-	if(nullptr != pClient)
+	if(nullptr == pClient)
 	{
-		loggerIns()->info("CloseOneConnection begin pClient={}, i64Index={}, i64SrvIndex={}", (void *)(pClient), pClient->GetIndex(), pClient->GetSrvIndex());
-	}
-	else
-	{
-		loggerIns()->info("CloseOneConnection begin i64Index={}", i64Index);
-	}
-	//效验数据
-	if (0 == i64Index && nullptr != pClient) 
-	{
-		i64Index = pClient->GetIndex();
-	}
-	if ((nullptr == pClient) || (0 == pClient->GetIndex()) || (i64Index != pClient->GetIndex())) 
-	{
+		loggerIns()->warn("CloseOneConnection pClient is null!");
 		return false;
 	}
+	loggerIns()->info("CloseOneConnection pClient={}, i64Index={}, i64SrvIndex={}", (void *)(pClient), pClient->GetIndex(), pClient->GetSrvIndex());
 
-	EnterCriticalSection(&m_csConnectLock);
-	ReleaseOneConnection(i64Index);
-	loggerIns()->info("CloseOneConnection end i64Index={}, i64SrvIndex={}, m_iClientNums={}", i64Index, pClient->GetSrvIndex(), m_iClientNums);
-	LeaveCriticalSection(&m_csConnectLock);
+	pClient->CloseSocket();
 	return true;
 }
 
 //释放连接资源
-void CSocketManager::ReleaseOneConnection(unsigned __int64 i64Index, bool bErase)
+void CSocketManager::ReleaseOneConnection(CClientSocket *pClient)
 {
-	std::map<unsigned __int64, CClientSocket*>::iterator iterFind = m_mapClientConnect.find(i64Index);
-	if(iterFind == m_mapClientConnect.end() || nullptr == iterFind->second)
+	if (nullptr == pClient)
 	{
-		loggerIns()->warn("ReleaseOneConnection i64Index={} not exist!", i64Index);
+		loggerIns()->warn("ReleaseOneConnection pClient is null!");
 		return;
 	}
 
+	//先把资源拿出来
+	EnterCriticalSection(&m_csActiveConnectLock);
+	if (m_mapClientConnect.find(pClient->GetIndex()) != m_mapClientConnect.end())
+	{
+		m_mapClientConnect.erase(pClient->GetIndex());
+		--m_iClientNums;
+	}
+	LeaveCriticalSection(&m_csActiveConnectLock);
+
 	//最多保留MAX_FREE_CLIENT_NUM个空闲资源备用
+	EnterCriticalSection(&m_csFreeConnectLock);
 	if(m_lstFreeClientConn.size() < MAX_FREE_CLIENT_NUM)
 	{
-		iterFind->second->CloseSocket();
-		iterFind->second->InitData();
-		m_lstFreeClientConn.push_back(iterFind->second);
+		loggerIns()->info("reuse i64Index={}, pClient={}", pClient->GetIndex(), (void*)(pClient));
+		pClient->CloseSocket();
+		pClient->InitData();
+		m_lstFreeClientConn.push_back(pClient);
+		LeaveCriticalSection(&m_csFreeConnectLock);
 	}
 	else
 	{
-		delete iterFind->second;//析构的时候会自动关闭连接
-		iterFind->second = nullptr;
+		LeaveCriticalSection(&m_csFreeConnectLock);
+		loggerIns()->info("delete i64Index={}, pClient={}", pClient->GetIndex(), (void*)(pClient));
+		//析构的时候会自动关闭连接
+		delete pClient;
+		pClient = nullptr;
 	}
-	if(bErase)
-	{
-		m_mapClientConnect.erase(iterFind);
-	}
-	--m_iClientNums;
 	return;
 }
 
@@ -135,7 +131,7 @@ void CSocketManager::ReleaseOneConnection(unsigned __int64 i64Index, bool bErase
 bool CSocketManager::CloseAllConnection()
 {
 	loggerIns()->info("CSocketManager CloseAllConnection! m_iClientNums={}", m_iClientNums);
-	EnterCriticalSection(&m_csConnectLock);
+	EnterCriticalSection(&m_csActiveConnectLock);
 	//释放所有连接的客户端
 	std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.begin();
 	for(;iterClient != m_mapClientConnect.end(); iterClient++)
@@ -149,7 +145,9 @@ bool CSocketManager::CloseAllConnection()
 		}
 	}
 	m_mapClientConnect.clear();
+	LeaveCriticalSection(&m_csActiveConnectLock);
 
+	EnterCriticalSection(&m_csFreeConnectLock);
 	//释放空闲资源
 	std::list<CClientSocket *>::iterator lstClient = m_lstFreeClientConn.begin();
 	for(;lstClient != m_lstFreeClientConn.end(); lstClient++)
@@ -162,7 +160,7 @@ bool CSocketManager::CloseAllConnection()
 		}
 	}
 	m_lstFreeClientConn.clear();
-	LeaveCriticalSection(&m_csConnectLock);
+	LeaveCriticalSection(&m_csFreeConnectLock);
 
 	//释放待处理任务
 	EnterCriticalSection(&m_csJobLock);
@@ -206,9 +204,9 @@ bool CSocketManager::ProcessIOMessage(CClientSocket *pClient, sOverLapped *pOver
 				std::list<sJobItem *>::iterator iterJob = lstJobs.begin();
 				for(;iterJob != lstJobs.end();iterJob++)
 				{
-					if(AddJob(*iterJob))
+					if (AddOneJob(*iterJob))
 					{
-						CCommEvent::GetInstance()->NotifyOneEvent(ENEVT_NEW_JOB_ADD);
+						CCommEvent::GetInstance()->NotifyOneEvent(EVENT_NEW_JOB_ADD);
 					}
 				}
 			}
@@ -235,7 +233,7 @@ bool CSocketManager::ProcessIOMessage(CClientSocket *pClient, sOverLapped *pOver
 //发送数据
 int CSocketManager::SendData(unsigned __int64 i64Index, void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode)
 {
-	EnterCriticalSection(&m_csConnectLock);
+	EnterCriticalSection(&m_csActiveConnectLock);
 	//所有客户端
 	if(0 == i64Index)
 	{
@@ -250,6 +248,7 @@ int CSocketManager::SendData(unsigned __int64 i64Index, void* pData, DWORD dwDat
 			else
 			{
 				iterClient = m_mapClientConnect.erase(iterClient);
+				--m_iClientNums;
 			}
 		}
 	}
@@ -265,12 +264,12 @@ int CSocketManager::SendData(unsigned __int64 i64Index, void* pData, DWORD dwDat
 			}
 		}
 	}
-	LeaveCriticalSection(&m_csConnectLock);
+	LeaveCriticalSection(&m_csActiveConnectLock);
 	return 0;
 }
 
 //增加任务
-bool CSocketManager::AddJob(sJobItem *pJob)
+bool CSocketManager::AddOneJob(sJobItem *pJob)
 {
 	bool bSucc = false;
 	if(nullptr != pJob)
@@ -283,7 +282,7 @@ bool CSocketManager::AddJob(sJobItem *pJob)
 		}
 		else
 		{
-			loggerIns()->warn("AddJob failed, too much job! i64Index={}", pJob->i64Index);
+			loggerIns()->warn("AddOneJob failed, too much job! i64Index={}", pJob->i64Index);
 			//释放内存
 			m_jobManager.ReleaseJobItem(pJob);
 		}
@@ -309,7 +308,7 @@ bool CSocketManager::ProcessJob()
 		return false;
 	}
 	loggerIns()->debug("ProcessJob i64Index={}, dwBufLen={}", pJob->i64Index, pJob->dwBufLen);
-	EnterCriticalSection(&m_csConnectLock);
+	EnterCriticalSection(&m_csActiveConnectLock);
 	//发送给所有人
 	if(0 == pJob->i64Index)
 	{
@@ -318,19 +317,13 @@ bool CSocketManager::ProcessJob()
 		{
 			if(nullptr != iterClient->second)
 			{
-				//心跳超时
-				if(iterClient->second->GetTimeOutCount() > MAX_CONNECT_TIME_OUT_COUNT)
-				{
-					ReleaseOneConnection(iterClient->first, false);
-					iterClient = m_mapClientConnect.erase(iterClient);
-					continue;
-				}
 				iterClient->second->HandleMsg(pJob->pJobBuff, pJob->dwBufLen);
 				++iterClient;
 			}
 			else
 			{
 				iterClient = m_mapClientConnect.erase(iterClient);
+				--m_iClientNums;
 			}
 		}
 	}
@@ -346,7 +339,7 @@ bool CSocketManager::ProcessJob()
 			loggerIns()->warn("ProcessJob i64Index={} not exists!", pJob->i64Index);
 		}
 	}
-	LeaveCriticalSection(&m_csConnectLock);
+	LeaveCriticalSection(&m_csActiveConnectLock);
 	//释放Job内存
 	m_jobManager.ReleaseJobItem(pJob);
 	return true;
@@ -420,6 +413,7 @@ int CSocketManager::OnTimer(DWORD dwTimerID)
 	case TIMER_ID_KEEP_ALIVE:
 		{
 			AddHeartJob();
+			
 			break;
 		}
 	default:
@@ -454,7 +448,7 @@ void CSocketManager::AddHeartJob()
 	NetMsgHead msgHead;
 	msgHead.dwMsgSize = sizeof(NetMsgHead);
 	msgHead.dwMainID = MAIN_KEEP_ALIVE;
-	msgHead.dwAssID = ASS_KEEP_ALIVE;
+	msgHead.dwAssID = ASS_SC_KEEP_ALIVE;
 	msgHead.dwHandleCode = 0;
 	msgHead.dwReserve = 0;
 	sJobItem* pJob = m_jobManager.NewJobItem(msgHead.dwMsgSize);
@@ -463,9 +457,9 @@ void CSocketManager::AddHeartJob()
 		pJob->i64Index = 0;
 		pJob->dwBufLen = msgHead.dwMsgSize;
 		memcpy(pJob->pJobBuff, &msgHead, pJob->dwBufLen);
-		if(AddJob(pJob))
+		if (AddOneJob(pJob))
 		{
-			CCommEvent::GetInstance()->NotifyOneEvent(ENEVT_NEW_JOB_ADD);
+			CCommEvent::GetInstance()->NotifyOneEvent(EVENT_NEW_JOB_ADD);
 		}
 	}
 }

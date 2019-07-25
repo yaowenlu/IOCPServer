@@ -121,10 +121,10 @@ BOOL CTestIocpServerDlg::OnInitDialog()
 	dwStyle |= LVS_EX_GRIDLINES;
 	m_lstLogs.SetExtendedStyle(dwStyle);
 
-	m_lstLogs.InsertColumn(0, "日志信息", LVCFMT_LEFT, 750);
-	m_edListenPort.SetWindowText("6080");
-	m_edIoThreadNum.SetWindowText("0");
-	m_edWorkThreadNum.SetWindowText("0");
+	m_lstLogs.InsertColumn(0, _T("日志信息"), LVCFMT_LEFT, 750);
+	m_edListenPort.SetWindowText(_T("6080"));
+	m_edIoThreadNum.SetWindowText(_T("0"));
+	m_edWorkThreadNum.SetWindowText(_T("0"));
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -183,28 +183,28 @@ void CTestIocpServerDlg::OnBnClickedButtonStartService()
 	//获取监听端口
 	TCHAR szPort[32] = {0};
 	m_edListenPort.GetWindowText(szPort, 32);
-	int iListenPort = atoi(szPort);
+	int iListenPort = _wtoi(szPort);
 	//获取工作线程数
 	TCHAR szNum[32] = {0};
 	m_edWorkThreadNum.GetWindowText(szNum, 32);
-	int iWorkThreadNum = atoi(szNum);
+	int iWorkThreadNum = _wtoi(szNum);
 
 	//获取工作线程数
 	memset(szNum, 0, sizeof(szNum));
 	m_edIoThreadNum.GetWindowText(szNum, 32);
-	int iIoThreadNum = atoi(szNum);
+	int iIoThreadNum = _wtoi(szNum);
 
 	CString strLog;
-	strLog.Format("StartService iListenPort{}, iWorkThreadNum{}", iListenPort, iWorkThreadNum);
+	strLog.Format(_T("StartService iListenPort=%d, iWorkThreadNum=%d"), iListenPort, iWorkThreadNum);
 	m_lstLogs.InsertItem(m_lstLogs.GetItemCount(), strLog);
 	int iRet = m_pServerImpl->StartService(iListenPort, iIoThreadNum, iWorkThreadNum);
 	if(0 != iRet)
 	{
-		strLog.Format("StartService ERROR iRet{}", iRet);
+		strLog.Format(_T("StartService ERROR iRet=%d"), iRet);
 	}
 	else
 	{
-		strLog.Format("StartService Success!");
+		strLog.Format(_T("StartService Success!"));
 	}
 	m_lstLogs.InsertItem(m_lstLogs.GetItemCount(), strLog);
 }
@@ -217,11 +217,11 @@ void CTestIocpServerDlg::OnBnClickedButtonStopService()
 	CString strLog;
 	if(0 != iRet)
 	{
-		strLog.Format("StopService ERROR iRet{}", iRet);
+		strLog.Format(_T("StopService ERROR iRet=%d"), iRet);
 	}
 	else
 	{
-		strLog.Format("StopService Success!");
+		strLog.Format(_T("StopService Success!"));
 	}
 	m_lstLogs.InsertItem(m_lstLogs.GetItemCount(), strLog);
 }

@@ -2,6 +2,7 @@
 // TestIocpClientDlg.cpp : 实现文件
 //
 
+#include <string>
 #include "stdafx.h"
 #include "TestIocpClient.h"
 #include "TestIocpClientDlg.h"
@@ -11,6 +12,23 @@
 #define new DEBUG_NEW
 #endif
 
+std::string TChar2String(TCHAR *pChar)
+{
+	if (nullptr == pChar)
+	{
+		return "";
+	}
+	int iLen = WideCharToMultiByte(CP_ACP, 0, pChar, -1, NULL, 0, NULL, NULL);
+	char* pNew = new char[iLen*sizeof(char)];
+	if (nullptr == pNew)
+	{
+		return "";
+	}
+	WideCharToMultiByte(CP_ACP, 0, pChar, -1, pNew, iLen, NULL, NULL);
+	std::string str(pNew);
+	delete[] pNew;
+	return str;
+}
 
 // 用于应用程序“关于”菜单项的 CAboutDlg 对话框
 
@@ -124,11 +142,11 @@ BOOL CTestIocpClientDlg::OnInitDialog()
 	dwStyle |= LVS_EX_GRIDLINES;
 	m_lstLog.SetExtendedStyle(dwStyle);
 
-	m_lstLog.InsertColumn(0, "日志信息", LVCFMT_LEFT, 750);
-	m_edServerIp.SetWindowText("127.0.0.1");
-	m_edServerPort.SetWindowText("6080");
-	m_edClientNum.SetWindowText("3000");
-	m_edMsgContent.SetWindowText("test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!");
+	m_lstLog.InsertColumn(0, _T("日志信息"), LVCFMT_LEFT, 750);
+	m_edServerIp.SetWindowText(_T("127.0.0.1"));
+	m_edServerPort.SetWindowText(_T("6080"));
+	m_edClientNum.SetWindowText(_T("3000"));
+	m_edMsgContent.SetWindowText(_T("test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!"));
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -188,24 +206,23 @@ void CTestIocpClientDlg::OnBnClickedButtonConnect()
 	//获取服务器地址
 	TCHAR szIp[32] = {0};
 	m_edServerIp.GetWindowText(szIp, 32);
-	CString strIp = szIp;
 
 	//获取服务器端口
 	TCHAR szPort[32] = {0};
 	m_edServerPort.GetWindowText(szPort, 32);
-	int iPort = atoi(szPort);
+	int iPort = _wtoi(szPort);
 
 	//获取连接数
 	TCHAR szNum[32] = {0};
 	m_edClientNum.GetWindowText(szNum, 32);
-	int iNum = atoi(szNum);
+	int iNum = _wtoi(szNum);
 
 	CString strLog;
-	strLog.Format("ConnectServer ip=%s, port=%d, num=%d", strIp, iPort, iNum);
+	strLog.Format(_T("ConnectServer ip=%s, port=%d, num=%d"), szIp, iPort, iNum);
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 
-	int iRet = m_pClientImpl->ConnectServer(strIp.GetBuffer(), iPort, iNum);
-	strLog.Format("ConnectServer iRet=%d", iRet);
+	int iRet = m_pClientImpl->ConnectServer(TChar2String(szIp), iPort, iNum);
+	strLog.Format(_T("ConnectServer iRet=%d"), iRet);
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 }
 
@@ -215,7 +232,7 @@ void CTestIocpClientDlg::OnBnClickedButtonDisconnect()
 	// TODO: 在此添加控件通知处理程序代码
 	m_pClientImpl->DisConnectServer();
 	CString strLog;
-	strLog.Format("DisConnectServer!");
+	strLog.Format(_T("DisConnectServer!"));
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 }
 
@@ -223,11 +240,10 @@ void CTestIocpClientDlg::OnBnClickedButtonDisconnect()
 void CTestIocpClientDlg::OnBnClickedButtonSendmsg()
 {
 	// TODO: 在此添加控件通知处理程序代码
-	char szMsg[MAX_SEND_SIZE] = {0};
+	TCHAR szMsg[MAX_SEND_SIZE] = {0};
 	m_edMsgContent.GetWindowText(szMsg, MAX_SEND_SIZE);
-	UINT uLen = strlen(szMsg);
-	m_pClientImpl->SendData(szMsg, uLen, 100, 10, 1);
+	m_pClientImpl->SendData(szMsg, sizeof(szMsg), 100, 10, 1);
 	CString strLog;
-	strLog.Format("SendData szMsg=%s", szMsg);
+	strLog.Format(_T("SendData szMsg=%s"), szMsg);
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 }

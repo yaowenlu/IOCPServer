@@ -1,7 +1,6 @@
 #ifndef SOCKET_MANAGER_H
 #define SOCKET_MANAGER_H
 
-#include "afxwin.h"
 #include <map>
 #include <list>
 #include "ClientSocket.h"
@@ -46,19 +45,12 @@ public:
 	virtual CClientSocket* ActiveOneConnection(SOCKET hSocket);
 
 	//关闭一个连接
-	/***************************
-	请不要直接调用此函数，要关闭一个连接调用对应客户端的CloseSocket函数即可，
-	完成端口会自动调用此函数释放连接占用的资源
-	***************************/
-	virtual bool CloseOneConnection(CClientSocket *pClient, unsigned __int64 i64Index = 0);
+	virtual bool CloseOneConnection(CClientSocket *pClient);
+
 	//释放连接资源
-	virtual void ReleaseOneConnection(unsigned __int64 i64Index, bool bErase = true);
+	virtual void ReleaseOneConnection(CClientSocket *pClient);
 
 	//关闭所有连接
-	/*******************************
-	在调用此函数前必须要先关闭所有完成端口，否则可能导致程序崩溃
-	因为此函数会释放客户端所属的内存，而此内存会被完成端口使用
-	********************************/
 	virtual bool CloseAllConnection();
 
 	//发送数据
@@ -75,7 +67,7 @@ public:
 	}
 
 	//增加任务
-	virtual bool AddJob(sJobItem *pJob);
+	virtual bool AddOneJob(sJobItem *pJob);
 
 	//处理任务
 	virtual bool ProcessJob();
@@ -94,7 +86,6 @@ public:
 
 	//增加心跳Job
 	virtual void AddHeartJob();
-
 protected:
 	std::map<unsigned __int64, CClientSocket*> m_mapClientConnect;
 	std::list<CClientSocket *> m_lstFreeClientConn;
@@ -107,7 +98,8 @@ protected:
 	CJobManager m_jobManager;
 
 	//锁资源
-	CRITICAL_SECTION m_csConnectLock;
+	CRITICAL_SECTION m_csActiveConnectLock;
+	CRITICAL_SECTION m_csFreeConnectLock;
 	CRITICAL_SECTION m_csJobLock;
 	CRITICAL_SECTION m_csTimerLock;
 };

@@ -1,5 +1,6 @@
 #include "ClientSocket.h"
 #include "SpdlogDef.h"
+#include "SocketManager.h"
 
 /*********************************************************
 *********************************************************
@@ -15,10 +16,10 @@ CClientSocket::CClientSocket()
 
 CClientSocket::~CClientSocket()
 {
+	CloseSocket();
 	DeleteCriticalSection(&m_csRecvLock);
 	DeleteCriticalSection(&m_csSendLock);
 	DeleteCriticalSection(&m_csStateLock);
-	CloseSocket();
 }
 
 void CClientSocket::InitData()
@@ -26,6 +27,7 @@ void CClientSocket::InitData()
 	EnterCriticalSection(&m_csSendLock);
 	EnterCriticalSection(&m_csRecvLock);
 	EnterCriticalSection(&m_csStateLock);
+	m_pManager = nullptr;
 	m_hSocket = INVALID_SOCKET;
 	m_i64Index = 0;
 	m_lBeginTime=0;
@@ -47,7 +49,8 @@ bool CClientSocket::CloseSocket(bool bGraceful)
 {
 	if(INVALID_SOCKET != m_hSocket)
 	{
-		if (bGraceful) 
+		//发送队列中的数据会直接放弃
+		if (!bGraceful) 
 		{
 			LINGER lingerStruct;
 			lingerStruct.l_onoff = 1;
@@ -75,7 +78,7 @@ bool CClientSocket::OnRecvBegin()
 	if (SOCKET_ERROR == iRet && WSAGetLastError() != WSA_IO_PENDING)
 	{
 		loggerIns()->error("OnRecvBegin error={}, m_i64Index={}, i64SrvIndex={}", WSAGetLastError(), m_i64Index, GetSrvIndex());
-		CloseSocket();
+		m_pManager->CloseOneConnection(this);
 		LeaveCriticalSection(&m_csRecvLock);
 		return false;
 	}
@@ -119,7 +122,7 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount, std::list<sJobItem *> &ls
 			if(!pMsgHead || pMsgHead->dwMsgSize < sizeof(NetMsgHead))
 			{
 				loggerIns()->error("msg null or size illegal! pMsgHead={}", (void *)(pMsgHead));
-				CloseSocket();
+				m_pManager->CloseOneConnection(this);
 				LeaveCriticalSection(&m_csRecvLock);
 				return false;
 			}
@@ -127,8 +130,8 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount, std::list<sJobItem *> &ls
 			sJobItem *pJob = m_jobManager.NewJobItem(dwMsgSize);
 			if(!pJob)
 			{
-				loggerIns()->error("NewJobItem fail!");
-				CloseSocket();
+				loggerIns()->error("OnRecvCompleted NewJobItem fail!");
+				m_pManager->CloseOneConnection(this);
 				LeaveCriticalSection(&m_csRecvLock);
 				return false;
 			}
@@ -182,10 +185,6 @@ int CClientSocket::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD 
 		m_dwSendBuffLen += uSendSize;
 		LeaveCriticalSection(&m_csSendLock);
 		int iFinishSize = OnSendBegin()?dwDataLen:0;
-		if(MAIN_KEEP_ALIVE == dwMainID && ASS_KEEP_ALIVE == dwAssID)
-		{
-			InterlockedIncrement(&m_dwTimeOutCount);
-		}
 		return iFinishSize;
 	}
 	else
@@ -214,7 +213,7 @@ bool CClientSocket::OnSendBegin()
 		if (SOCKET_ERROR == iRet && WSAGetLastError() != WSA_IO_PENDING)
 		{
 			loggerIns()->error("OnSendBegin error={}, m_i64Index={}, i64SrvIndex={}", WSAGetLastError(), m_i64Index, GetSrvIndex());
-			CloseSocket();
+			m_pManager->CloseOneConnection(this);
 			m_bSending = false;
 			LeaveCriticalSection(&m_csStateLock);
 			LeaveCriticalSection(&m_csSendLock);
@@ -259,8 +258,27 @@ bool CClientSocket::OnSendCompleted(DWORD dwSendCount)
 }
 
 //处理消息
-void CClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
+bool CClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 {
-	InterlockedExchange(&m_dwTimeOutCount, 0);
-	return;
+	//处理心跳消息
+	if (nullptr != pMsgBuf && sizeof(NetMsgHead) == dwBufLen)
+	{
+		NetMsgHead *pMsgHead = reinterpret_cast<NetMsgHead*>(pMsgBuf);
+		if (ASS_SC_KEEP_ALIVE != pMsgHead->dwAssID || MAIN_KEEP_ALIVE != pMsgHead->dwMainID)
+		{
+			InterlockedExchange(&m_dwTimeOutCount, 0);
+		}
+		else
+		{
+			InterlockedIncrement(&m_dwTimeOutCount);
+			if (m_dwTimeOutCount > MAX_CONNECT_TIME_OUT_COUNT && m_pManager)
+			{
+				loggerIns()->warn("before close m_i64Index={}, m_dwTimeOutCount={}", GetIndex(), m_dwTimeOutCount);
+				m_pManager->CloseOneConnection(this);
+				return true;
+			}
+		}
+	}
+
+	return false;
 }

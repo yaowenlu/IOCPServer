@@ -14,19 +14,22 @@
 #define TIME_OUT				3000			//超时时间
 #define MAX_SEND_SIZE			4000			//单条消息最多发送的数据大小
 
-
+class CSocketManager;
 //每个客户端连接信息
 class CClientSocket
 {
 public:
 	CClientSocket();
 	virtual ~CClientSocket();
+
 	//初始化数据
 	void InitData();
 
 	//关闭连接
-	bool CloseSocket(bool bGraceful = true);
+	bool CloseSocket(bool bGraceful = false);
 
+	//设置管理类
+	void SetManager(CSocketManager* pManager){ m_pManager = pManager; }
 	inline void SetSocket(SOCKET hSocket){m_hSocket = hSocket;}
 	inline SOCKET GetSocket(){return m_hSocket;}
 	inline void SetIndex(unsigned __int64 i64Index){m_i64Index = i64Index;}
@@ -49,7 +52,7 @@ public:
 	bool OnSendCompleted(DWORD dwSendCount);
 
 	//处理消息
-	virtual void HandleMsg(void *pMsgBuf, DWORD dwBufLen);
+	virtual bool HandleMsg(void *pMsgBuf, DWORD dwBufLen);
 
 	//设置服务端索引
 	virtual void SetSrvIndex(unsigned __int64 i64SrvIndex){ return; }
@@ -57,7 +60,8 @@ public:
 	//获取服务端索引
 	virtual unsigned __int64 GetSrvIndex(){return 0;}
 
-public:
+private:
+	CSocketManager* m_pManager;
 	SOCKET m_hSocket;//连接对应的socket
 	unsigned __int64 m_i64Index;//用来识别唯一的客户端连接
 	CRITICAL_SECTION m_csRecvLock;
@@ -68,13 +72,14 @@ public:
 	char			m_szRecvBuf[RCV_SIZE];	//数据接收缓冲区
 	long int		m_lBeginTime;			//连接时间
 
+	DWORD			m_dwTimeOutCount;	//超时次数
+	bool			m_bSending;			//数据是否正在发送
+	CJobManager		m_jobManager;
+public:
 	DWORD			m_dwSendBuffLen;	//发送缓冲区长度
 	DWORD			m_dwRecvBuffLen;	//接收缓冲区长度
 	sOverLapped		m_SendOverData;		//发送数据重叠结构
 	sOverLapped		m_RecvOverData;		//接收数据重叠结构
-	DWORD			m_dwTimeOutCount;	//超时次数
-	bool			m_bSending;			//数据是否正在发送
-	CJobManager		m_jobManager;
 };
 
 #endif

@@ -4,7 +4,7 @@
 #include "ClientSocket.h"
 #include "SocketManager.h"
 
-#define MAX_WORD_THREAD_NUMS 256	//最大工作线程数
+#define MAX_THREAD_NUMS		256			//最大工作线程数
 
 class CCltSocketManager;
 class yClientImpl;
@@ -30,7 +30,7 @@ struct sThreadData
 	int iThreadIndex;
 	HANDLE hCompletionPort;//完成端口
 	HANDLE hThreadEvent;//线程事件
-	HANDLE hJobEvent;//线程事件			
+	HANDLE hTestEvent;//线程事件			
 	CCltSocketManager* pCltSocketManage;//管理类指针
 	yClientImpl* pClientSocket;
 };
@@ -42,7 +42,7 @@ public:
 	~CCltClientSocket();
 
 	//处理消息
-	virtual void HandleMsg(void *pMsgBuf, DWORD dwBufLen);
+	virtual bool HandleMsg(void *pMsgBuf, DWORD dwBufLen);
 	//设置服务端索引
 	void SetSrvIndex(unsigned __int64 i64SrvIndex){m_i64SrvIndex = i64SrvIndex;}
 	//获取服务端索引
@@ -79,9 +79,6 @@ public:
 
 	//发送数据
 	int SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode);
-	
-	//获取工作事件句柄
-	HANDLE GetJobEvent(){return m_hJobEvent;}
 
 private:
 	//激活指定数量的客户端连接
@@ -114,9 +111,9 @@ private:
 	DWORD m_dwIoThreadNum;
 	DWORD m_dwJobThreadNum;
 	HANDLE m_hThreadEvent;//批量发送事件
-	HANDLE m_hJobEvent;//批量发送事件
 	HANDLE m_hTestEvent;//批量发送事件
-	HANDLE m_hCompletionPort;//完成端口
+	HANDLE m_hIoCompletionPort;//完成端口
+	HANDLE m_hJobCompletionPort;//完成端口
 	CCltSocketManager *m_pCltSocketManage;
 
 	std::string m_strServerIp;//服务器ip

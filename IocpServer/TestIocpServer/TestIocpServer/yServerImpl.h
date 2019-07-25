@@ -29,7 +29,6 @@ struct sThreadData
 	int iThreadIndex;
 	HANDLE hCompletionPort;//完成端口
 	HANDLE hThreadEvent;//线程事件
-	HANDLE hJobEvent;//线程事件
 	SOCKET hLsSocket;//监听socket			
 	CSrvSocketManager*	pSrvSocketManage;//管理类指针
 };
@@ -41,7 +40,7 @@ public:
 	~CSrvClientSocket();
 
 	//处理消息
-	virtual void HandleMsg(void *pMsgBuf, DWORD dwBufLen);
+	virtual bool HandleMsg(void *pMsgBuf, DWORD dwBufLen);
 };
 
 //服务端Socket管理类
@@ -100,9 +99,8 @@ protected:
 	DWORD m_dwIoThreadNum;//io线程数
 	DWORD m_dwJobThreadNum;//工作线程数
 	HANDLE m_hThreadEvent;//线程发送事件
-	HANDLE m_hJobEvent;//job发送事件
-	HANDLE m_hTimerEvent;//job发送事件
-	HANDLE m_hCompletionPort;//完成端口
+	HANDLE m_hIoCompletionPort;//IO完成端口
+	HANDLE m_hJobCompletionPort;//Job完成端口
 	HANDLE m_hListenThread;//监听线程句柄
 	SOCKET m_lsSocket;//监听socket
 	CSrvSocketManager *m_pSrvSocketManager;
