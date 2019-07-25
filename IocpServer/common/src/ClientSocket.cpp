@@ -27,7 +27,6 @@ void CClientSocket::InitData()
 	EnterCriticalSection(&m_csSendLock);
 	EnterCriticalSection(&m_csRecvLock);
 	EnterCriticalSection(&m_csStateLock);
-	m_pManager = nullptr;
 	m_hSocket = INVALID_SOCKET;
 	m_i64Index = 0;
 	m_lBeginTime=0;

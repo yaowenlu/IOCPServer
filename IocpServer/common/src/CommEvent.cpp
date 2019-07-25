@@ -39,7 +39,7 @@ void CCommEvent::AddOneEvent(std::string strEventName, void *pEventFunc, void *p
 	map<string, sEventInfo>::iterator itEvent = m_mapEvent.find(strEventName);
 	if(itEvent != m_mapEvent.end())
 	{
-		loggerIns()->warn("AddOneEvent strEventName=%s already exist!", strEventName.c_str());
+		loggerIns()->warn("AddOneEvent strEventName={} already exist!", strEventName);
 	}
 	else
 	{
@@ -70,7 +70,7 @@ void CCommEvent::NotifyOneEvent(std::string strEventName)
 	map<string, sEventInfo>::iterator itEvent = m_mapEvent.find(strEventName);
 	if(itEvent == m_mapEvent.end())
 	{
-		loggerIns()->warn("NotifyOneEvent strEventName=%s not exist!", strEventName.c_str());
+		loggerIns()->warn("NotifyOneEvent strEventName={} not exist!", strEventName);
 	}
 	else
 	{

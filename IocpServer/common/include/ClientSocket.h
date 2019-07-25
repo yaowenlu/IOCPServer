@@ -23,7 +23,7 @@ public:
 	virtual ~CClientSocket();
 
 	//初始化数据
-	void InitData();
+	virtual void InitData();
 
 	//关闭连接
 	bool CloseSocket(bool bGraceful = false);

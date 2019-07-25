@@ -21,6 +21,13 @@ CCltClientSocket::~CCltClientSocket()
 
 }
 
+//初始化数据
+void CCltClientSocket::InitData()
+{
+	__super::InitData();
+	m_i64SrvIndex = 0;
+}
+
 //处理消息
 bool CCltClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 {
@@ -147,20 +154,21 @@ CClientSocket* CCltSocketManager::ActiveOneConnection(SOCKET hSocket)
 //关闭指定数量的连接
 bool CCltSocketManager::CloseConnection(DWORD dwNum)
 {
-	
 	DWORD dwCloseNum = 0;
 	std::map<unsigned __int64, CClientSocket*>::iterator iterClient;
+	CClientSocket* pClient = nullptr;
 	while (++dwCloseNum <= dwNum)
 	{
 		EnterCriticalSection(&m_csActiveConnectLock);
 		iterClient = m_mapClientConnect.begin();
 		if (iterClient != m_mapClientConnect.end())
 		{
+			pClient = iterClient->second;
 			//先把这个client拿出来，防止其他人访问
 			m_mapClientConnect.erase(iterClient->first);
 			--m_iClientNums;
 			loggerIns()->info("CloseConnection dwCloseNum={}, i64Index={}, i64SrvIndex={}, m_iClientNums={}",
-				dwCloseNum, iterClient->first, iterClient->second->GetSrvIndex(), m_iClientNums);
+				dwCloseNum, pClient->GetIndex(), pClient->GetSrvIndex(), m_iClientNums);
 			LeaveCriticalSection(&m_csActiveConnectLock);
 		}
 		else
@@ -168,7 +176,7 @@ bool CCltSocketManager::CloseConnection(DWORD dwNum)
 			LeaveCriticalSection(&m_csActiveConnectLock);
 			break;
 		}	
-		ReleaseOneConnection(iterClient->second);
+		CloseOneConnection(pClient);
 	}
 	return true;
 }
@@ -190,12 +198,14 @@ yClientImpl::yClientImpl()
 	m_pCltSocketManage = nullptr;
 	m_strServerIp = "";
 	m_usServerPort = 0;
+	CCommEvent::GetInstance();
 	loggerIns()->debug("constructor yClientImpl finish!");
 }
 
 yClientImpl::~yClientImpl()
 {
 	DisConnectServer();
+	CCommEvent::GetInstance()->ReleaseInstance();
 	loggerIns()->debug("distructor yClientImpl finish!");
 }
 
@@ -587,12 +597,12 @@ unsigned __stdcall yClientImpl::JobThreadProc(LPVOID pParam)
 
 	DWORD dwTransferred = 0;
 	DWORD dwCompleteKey = 0;
-	LPOVERLAPPED *pOverLapped = nullptr;
+	LPOVERLAPPED lpOverlapped = nullptr;
 	while (true)
 	{
 		dwTransferred = 0;
-		pOverLapped = nullptr;
-		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&dwCompleteKey, pOverLapped, INFINITE);
+		lpOverlapped = nullptr;
+		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&dwCompleteKey, &lpOverlapped, INFINITE);
 		loggerIns()->debug("JobThreadProc get single! iThreadIndex={}, bIoRet={}, dwTransferred={}", iThreadIndex, bIoRet, dwTransferred);
 		if (!bIoRet || 0 == dwTransferred)
 		{

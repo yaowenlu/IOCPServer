@@ -41,12 +41,18 @@ public:
 	CCltClientSocket();
 	~CCltClientSocket();
 
+	//初始化数据
+	virtual void InitData();
+
 	//处理消息
 	virtual bool HandleMsg(void *pMsgBuf, DWORD dwBufLen);
+
 	//设置服务端索引
 	void SetSrvIndex(unsigned __int64 i64SrvIndex){m_i64SrvIndex = i64SrvIndex;}
+
 	//获取服务端索引
 	unsigned __int64 GetSrvIndex(){return m_i64SrvIndex;}
+
 private:
 	unsigned __int64 m_i64SrvIndex;
 };

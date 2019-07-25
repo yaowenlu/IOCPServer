@@ -120,12 +120,14 @@ yServerImpl::yServerImpl()
 	m_hListenThread = NULL;
 	m_lsSocket = INVALID_SOCKET;
 	m_pSrvSocketManager = nullptr;
+	CCommEvent::GetInstance();
 	loggerIns()->debug("constructor yServerImpl finish!");
 }
 
 yServerImpl::~yServerImpl()
 {
 	StopService();
+	CCommEvent::GetInstance()->ReleaseInstance();
 	loggerIns()->debug("distructor yServerImpl finish!");
 }
 
@@ -597,12 +599,12 @@ unsigned __stdcall yServerImpl::JobThreadProc(LPVOID pParam)
 
 	DWORD dwTransferred = 0;
 	DWORD dwCompleteKey = 0;
-	LPOVERLAPPED *pOverLapped = nullptr;
+	LPOVERLAPPED lpOverlapped = nullptr;
 	while (true)
 	{
 		dwTransferred = 0;
-		pOverLapped = nullptr;
-		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&dwCompleteKey, pOverLapped, INFINITE);
+		lpOverlapped = nullptr;
+		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&dwCompleteKey, &lpOverlapped, INFINITE);
 		loggerIns()->debug("JobThreadProc get single! iThreadIndex={}, bIoRet={}, dwTransferred={}", iThreadIndex, bIoRet, dwTransferred);
 		if (!bIoRet || 0 == dwTransferred)
 		{
