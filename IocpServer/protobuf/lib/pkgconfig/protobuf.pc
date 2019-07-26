@@ -1,0 +1,11 @@
+prefix=C:/Path/to/install
+exec_prefix=C:/Path/to/install
+libdir=C:/Path/to/install/lib
+includedir=C:/Path/to/install/include
+
+Name: Protocol Buffers
+Description: Google's Data Interchange Format
+Version: 3.9.0.0
+Libs: -L${libdir} -lprotobuf 
+Cflags: -I${includedir} 
+Conflicts: protobuf-lite
