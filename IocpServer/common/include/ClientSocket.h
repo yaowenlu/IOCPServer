@@ -7,6 +7,7 @@
 #include "MsgDefine.h"
 #include "CommSocketStruct.h"
 #include "JobManager.h"
+#include "ProxyDefine.h"
 
 //缓存定义
 #define SED_SIZE				40960			//发送缓冲区大小
@@ -35,6 +36,19 @@ public:
 	inline void SetIndex(unsigned __int64 i64Index){m_i64Index = i64Index;}
 	inline unsigned __int64 GetIndex(){return m_i64Index;}
 	DWORD GetTimeOutCount(){return m_dwTimeOutCount;}
+	//代理服务相关
+	void SetSrvType(enSrvType iSrvType) {
+		m_iSrvType = iSrvType;
+	}
+	enSrvType GetSrvType() {
+		return m_iSrvType;
+	}
+	void SetSrvID(USHORT usSrvID) {
+		m_usSrvID = usSrvID;
+	}
+	USHORT GetSrvID() {
+		return m_usSrvID;
+	}
 
 	//开始接收数据
 	bool OnRecvBegin();
@@ -44,6 +58,9 @@ public:
 
 	//发送数据函数
 	int SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode);
+
+	//发送代理数据
+	int SendProxyMsg(void *pMsgBuf, DWORD dwBufLen);
 
 	//开始发送
 	bool OnSendBegin();
@@ -80,6 +97,12 @@ public:
 	DWORD			m_dwRecvBuffLen;	//接收缓冲区长度
 	sOverLapped		m_SendOverData;		//发送数据重叠结构
 	sOverLapped		m_RecvOverData;		//接收数据重叠结构
+
+private:
+	//自己的类型
+	enSrvType m_iSrvType;
+	//自己的ID
+	USHORT m_usSrvID;
 };
 
 #endif

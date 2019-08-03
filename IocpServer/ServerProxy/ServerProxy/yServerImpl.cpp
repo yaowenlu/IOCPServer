@@ -17,72 +17,6 @@ CSrvClientSocket::~CSrvClientSocket()
 
 }
 
-//处理消息
-bool CSrvClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
-{
-	if (__super::HandleMsg(pMsgBuf, dwBufLen))
-	{
-		return true;
-	}
-
-	if(nullptr == pMsgBuf || dwBufLen < sizeof(NetMsgHead))
-	{
-		loggerIns()->error("HandleMsg m_i64Index={}, pMsgBuf={}, dwBufLen={}", GetIndex(), (void*)(pMsgBuf), dwBufLen);
-		return false;
-	}
-
-	DWORD* pSize = reinterpret_cast<DWORD*>(pMsgBuf);
-	if (!pSize)
-	{
-		return false;
-	}
-	enHeadType* pType = reinterpret_cast<enHeadType*>(pSize+1);
-	if (!pType)
-	{
-		return false;
-	}
-	enHeadType headType = *pType;
-	if (MSG_HEAD == headType)
-	{
-		NetMsgHead* pMsgHead = reinterpret_cast<NetMsgHead*>(pMsgBuf);
-		//根据不同的消息ID做处理
-		if (pMsgHead)
-		{
-			loggerIns()->debug("HandleMsg m_i64Index={}, dwMsgSize={}, dwMainID={}, dwAssID={}, dwHandleCode={}, dwReserve={}",
-				GetIndex(), pMsgHead->dwMsgSize, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode, pMsgHead->dwReserve);
-			DWORD dwDataLen = dwBufLen - sizeof(NetMsgHead);
-			BYTE *pDataBuf = (BYTE*)pMsgBuf + sizeof(NetMsgHead);
-			SendData(pDataBuf, dwDataLen, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode);
-		}
-		else
-		{
-			loggerIns()->error("HandleMsg m_i64Index={}, pMsgHead is null!", GetIndex());
-		}
-	}
-	else if (PROXY_HEAD == headType)
-	{
-		sProxyHead* pHead = reinterpret_cast<sProxyHead*>(pMsgBuf);
-		if (!pHead)
-		{
-			return false;
-		}
-		NetMsgHead* pMsgHead = reinterpret_cast<NetMsgHead*>(pHead+1);
-		if (!pMsgHead)
-		{
-			return false;
-		}
-		pHead->iDstType = pHead->iSrcType;
-		pHead->iSrcType = GetSrvType();
-		pHead->uDstID = pHead->uSrcID;
-		pHead->uSrcID = GetSrvID();
-		pHead->dwTotalLen = pHead->dwTotalLen;
-		SendProxyMsg(pHead, pHead->dwTotalLen);
-	}
-
-	return true;
-}
-
-
 /************************************************************************/
 /*                                                                      */
 /************************************************************************/
@@ -252,17 +186,19 @@ int yServerImpl::StopService()
 	return 0;
 }
 
-int yServerImpl::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThreadNum)
+int yServerImpl::StartService(sServerInfo serverInfo)
 {
-	loggerIns()->debug("yServerImpl StartService! iPort={}, dwIoThreadNum={}, dwJobThreadNum={}", iPort, dwIoThreadNum, dwJobThreadNum);
+	m_serverInfo = serverInfo;
+	loggerIns()->debug("yServerImpl StartService! iListenPort={},iIoThreadNum={},iJobThreadNum={},iSrvType={},iSrvID={}", 
+		serverInfo.iListenPort, serverInfo.iIoThreadNum, serverInfo.iJobThreadNum, serverInfo.iSrvType, serverInfo.iSrvID);
 	if(m_bWorking)
 	{
 		loggerIns()->error("StartService is working!");
 		return CODE_SERVICE_WORKING;
 	}
-	if(iPort <= 100)
+	if(serverInfo.iListenPort <= 100)
 	{
-		loggerIns()->error("StartService iPort={} illgelal!", iPort);
+		loggerIns()->error("StartService iPort={} illgelal!", serverInfo.iListenPort);
 		return CODE_SERVICE_PARAM_ERROR;
 	}
 
@@ -274,14 +210,14 @@ int yServerImpl::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThreadN
 	SYSTEM_INFO SystemInfo;
 	::GetSystemInfo(&SystemInfo);
 	//默认创建cpu核心数两倍的线程数
-	if (dwIoThreadNum <=0 || dwIoThreadNum >= MAX_THREAD_NUMS) 
+	if (serverInfo.iIoThreadNum <=0 || serverInfo.iIoThreadNum >= MAX_THREAD_NUMS)
 	{
-		dwIoThreadNum = SystemInfo.dwNumberOfProcessors*2;
+		serverInfo.iIoThreadNum = SystemInfo.dwNumberOfProcessors*2;
 	}
 
-	if (dwJobThreadNum <=0 || dwJobThreadNum >= MAX_THREAD_NUMS) 
+	if (serverInfo.iJobThreadNum <=0 || serverInfo.iJobThreadNum >= MAX_THREAD_NUMS)
 	{
-		dwJobThreadNum = SystemInfo.dwNumberOfProcessors*2;
+		serverInfo.iJobThreadNum = SystemInfo.dwNumberOfProcessors*2;
 	}
 	m_pSrvSocketManager->SetIsShutDown(false);
 
@@ -315,7 +251,7 @@ int yServerImpl::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThreadN
 	}
 
 	//启动IO线程
-	int iRet = StartIOWork(dwIoThreadNum);
+	int iRet = StartIOWork(serverInfo.iIoThreadNum);
 	if(0 != iRet)
 	{
 		StopService();
@@ -324,7 +260,7 @@ int yServerImpl::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThreadN
 
 	CCommEvent::GetInstance()->AddOneEvent(EVENT_NEW_JOB_ADD, EventFunc, &m_hJobCompletionPort);
 	//启动工作线程
-	iRet = StartJobWork(dwJobThreadNum);
+	iRet = StartJobWork(serverInfo.iJobThreadNum);
 	if(0 != iRet)
 	{
 		StopService();
@@ -332,7 +268,7 @@ int yServerImpl::StartService(int iPort, DWORD dwIoThreadNum, DWORD dwJobThreadN
 	}
 
 	//启动监听
-	iRet = StartListen(iPort);
+	iRet = StartListen(serverInfo.iListenPort);
 	if(0 != iRet)
 	{
 		StopService();

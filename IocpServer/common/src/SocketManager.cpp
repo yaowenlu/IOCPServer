@@ -1,6 +1,7 @@
 #include "SocketManager.h"
 #include "CommEvent.h"
 #include "SpdlogDef.h"
+#include "ProxyDefine.h"
 
 CSocketManager::CSocketManager()
 {
@@ -332,7 +333,71 @@ bool CSocketManager::ProcessJob()
 		std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.find(pJob->i64Index);
 		if(iterClient != m_mapClientConnect.end() && nullptr != iterClient->second)
 		{
-			iterClient->second->HandleMsg(pJob->pJobBuff, pJob->dwBufLen);
+			enHeadType* pHeadType = reinterpret_cast<enHeadType*>(pJob->pJobBuff + sizeof(DWORD));
+			//代理消息，直接转发
+			if (pHeadType && PROXY_HEAD == *pHeadType)
+			{
+				sProxyHead* pProxyHead = reinterpret_cast<sProxyHead*>(pJob->pJobBuff);
+				if (pProxyHead && pProxyHead->iDstType != INVALID_SRV)
+				{
+					std::map<unsigned __int64, CClientSocket*>::iterator iterClt = m_mapClientConnect.begin();
+					//找到对应的服务
+					for (;iterClt != m_mapClientConnect.end();iterClt++)
+					{
+						//点对点
+						if (pProxyHead->iTransType == trans_p2p)
+						{
+							if (iterClt->second->GetSrvType() == pProxyHead->iDstType && iterClt->second->GetSrvID() == pProxyHead->uDstID)
+							{
+								//一般都是请求后返回的结果
+								if (pProxyHead->i64Index != 0)
+								{
+									//指定ID
+									if (pProxyHead->i64Index == iterClt->first)
+									{
+										iterClient->second->SendProxyMsg(pJob->pJobBuff, pJob->dwBufLen);
+									}
+								}
+								//一般都是发起的请求
+								else
+								{
+									//记录请求者，在应答时返回结果给请求者
+									pProxyHead->i64Index = iterClt->first;
+									iterClient->second->SendProxyMsg(pJob->pJobBuff, pJob->dwBufLen);
+								}
+							}
+							break;
+						}
+						//点到组
+						else if (pProxyHead->iTransType == trans_p2g)
+						{
+							if (iterClt->second->GetSrvType() == pProxyHead->iDstType)
+							{
+								pProxyHead->i64Index = iterClt->first;
+								iterClient->second->SendProxyMsg(pJob->pJobBuff, pJob->dwBufLen);
+							}
+						}
+						else
+						{
+							loggerIns()->error("iTransType={} is illegal!");
+							break;
+						}
+					}
+				}
+				else
+				{
+					loggerIns()->warn("ProcessJob pProxyHead invalid!");
+				}
+			}
+			//正常消息直接处理
+			else if (pHeadType && MSG_HEAD == *pHeadType)
+			{
+				iterClient->second->HandleMsg(pJob->pJobBuff, pJob->dwBufLen);
+			}
+			else
+			{
+				loggerIns()->warn("ProcessJob pHeadType invalid!");
+			}
 		}
 		else
 		{
@@ -412,8 +477,7 @@ int CSocketManager::OnTimer(DWORD dwTimerID)
 	{
 	case TIMER_ID_KEEP_ALIVE:
 		{
-			AddHeartJob();
-			
+			AddHeartJob();	
 			break;
 		}
 	default:
@@ -447,6 +511,7 @@ void CSocketManager::AddHeartJob()
 	//发送心跳数据
 	NetMsgHead msgHead;
 	msgHead.dwMsgSize = sizeof(NetMsgHead);
+	msgHead.iHeadType = MSG_HEAD;
 	msgHead.dwMainID = MAIN_KEEP_ALIVE;
 	msgHead.dwAssID = ASS_SC_KEEP_ALIVE;
 	msgHead.dwHandleCode = 0;

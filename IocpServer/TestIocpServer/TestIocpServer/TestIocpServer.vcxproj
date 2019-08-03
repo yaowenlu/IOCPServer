@@ -218,6 +218,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\common\include\ClientSocket.h" />
+    <ClInclude Include="..\..\common\include\CommDefine.h" />
     <ClInclude Include="..\..\common\include\CommEvent.h" />
     <ClInclude Include="..\..\common\include\CommSocketStruct.h" />
     <ClInclude Include="..\..\common\include\EventDefine.h" />

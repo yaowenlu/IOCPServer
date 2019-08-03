@@ -66,6 +66,9 @@
     <ClInclude Include="..\..\common\include\SpdlogDef.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\common\include\CommDefine.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="TestIocpClient.cpp">

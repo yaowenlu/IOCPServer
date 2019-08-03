@@ -1,3 +1,5 @@
+#include "CommDefine.h"
+
 #ifndef MSG_DEFINE_H
 #define MSG_DEFINE_H
 
@@ -9,6 +11,7 @@
 struct NetMsgHead
 {
 	DWORD	dwMsgSize;		//数据包大小
+	enHeadType iHeadType;	//消息头类型
 	DWORD	dwMainID;		//消息主ID
 	DWORD	dwAssID;		//消息辅ID
 	DWORD	dwHandleCode;	//消息处理代码
@@ -21,6 +24,14 @@ struct NetMsgHead
 struct sConnectSucc
 {
 	unsigned __int64 i64SrvIndex;
+};
+
+//设置服务信息
+#define ASS_SET_SRV_INFO	20
+struct sSrvInfo
+{
+	enSrvType iSrvType;
+	USHORT usSrvID;
 };
 
 #endif

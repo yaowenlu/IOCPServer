@@ -1,6 +1,7 @@
 #include "ClientSocket.h"
 #include "SpdlogDef.h"
 #include "SocketManager.h"
+#include "ProxyDefine.h"
 
 /*********************************************************
 *********************************************************
@@ -38,6 +39,8 @@ void CClientSocket::InitData()
 	m_RecvOverData.uOperationType=SOCKET_REV;
 	m_dwTimeOutCount = 0;
 	m_bSending = false;
+	m_iSrvType = INVALID_SRV;
+	m_usSrvID = -1;
 	LeaveCriticalSection(&m_csStateLock);
 	LeaveCriticalSection(&m_csRecvLock);
 	LeaveCriticalSection(&m_csSendLock);
@@ -115,12 +118,54 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount, std::list<sJobItem *> &ls
 		//接收到了完整的消息
 		if(nullptr != pMsgSize && m_dwRecvBuffLen >= *pMsgSize)
 		{
-			NetMsgHead* pMsgHead = reinterpret_cast<NetMsgHead *>(m_szRecvBuf);
-			DWORD dwMsgSize = pMsgHead->dwMsgSize;
-			//非法数据包
-			if(!pMsgHead || pMsgHead->dwMsgSize < sizeof(NetMsgHead))
+			DWORD dwMsgSize = *pMsgSize;
+			bool bSucc = true;
+			if (dwMsgSize > sizeof(DWORD))
 			{
-				loggerIns()->error("msg null or size illegal! pMsgHead={}", (void *)(pMsgHead));
+				enHeadType* pHeadType = reinterpret_cast<enHeadType*>(&(m_szRecvBuf[sizeof(DWORD)]));
+				if (nullptr != pHeadType)
+				{
+					enHeadType curType = *pHeadType;
+					if (MSG_HEAD == curType)
+					{
+						loggerIns()->info("recv a normal msg finish, dwMsgSize={}", dwMsgSize);
+						if (dwMsgSize < sizeof(NetMsgHead))
+						{
+							loggerIns()->error("dwMsgSize={} is illegal!", dwMsgSize);
+							bSucc = false;
+						}
+					}
+					else if (PROXY_HEAD == curType)
+					{
+						loggerIns()->info("recv a proxy msg finish, dwMsgSize={}", dwMsgSize);
+						if (dwMsgSize < sizeof(NetMsgHead) + sizeof(sProxyHead))
+						{
+							loggerIns()->error("dwMsgSize={} is illegal!", dwMsgSize);
+							bSucc = false;
+						}
+					}
+					else
+					{
+						loggerIns()->error("recv a unsupport msg! curType={},dwMsgSize={}", curType, dwMsgSize);
+						bSucc = false;
+					}
+				}
+				else
+				{
+					loggerIns()->error("pHeadType is null!");
+					bSucc = false;
+				}
+			}
+			else
+			{
+				loggerIns()->error("dwMsgSize={} is illegal!", dwMsgSize);
+				bSucc = false;
+			}
+			
+			
+			//非法数据包
+			if(!bSucc)
+			{
 				m_pManager->CloseOneConnection(this);
 				LeaveCriticalSection(&m_csRecvLock);
 				return false;
@@ -175,6 +220,7 @@ int CClientSocket::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD 
 		//发送数据
 		NetMsgHead* pNetHead=(NetMsgHead*)(m_szSendBuf + m_dwSendBuffLen);
 		pNetHead->dwMsgSize = uSendSize;
+		pNetHead->iHeadType = MSG_HEAD;
 		pNetHead->dwMainID = dwMainID;
 		pNetHead->dwAssID = dwAssID;
 		pNetHead->dwHandleCode = dwHandleCode;		
@@ -263,9 +309,20 @@ bool CClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 	if (nullptr != pMsgBuf && sizeof(NetMsgHead) == dwBufLen)
 	{
 		NetMsgHead *pMsgHead = reinterpret_cast<NetMsgHead*>(pMsgBuf);
+		//非心跳检测
 		if (ASS_SC_KEEP_ALIVE != pMsgHead->dwAssID || MAIN_KEEP_ALIVE != pMsgHead->dwMainID)
 		{
 			InterlockedExchange(&m_dwTimeOutCount, 0);
+			//更新服务信息
+			if (ASS_SET_SRV_INFO == pMsgHead->dwAssID || MAIN_FRAME_MSG != pMsgHead->dwMainID)
+			{
+				sSrvInfo* pSrvInfo = reinterpret_cast<sSrvInfo*>(pMsgHead+1);
+				if (nullptr != pSrvInfo)
+				{
+					m_iSrvType = pSrvInfo->iSrvType;
+					m_usSrvID = pSrvInfo->usSrvID;
+				}
+			}
 		}
 		else
 		{
@@ -280,4 +337,25 @@ bool CClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 	}
 
 	return false;
+}
+
+//发送代理数据
+int CClientSocket::SendProxyMsg(void *pMsgBuf, DWORD dwBufLen)
+{
+	EnterCriticalSection(&m_csSendLock);
+	//缓冲区满了
+	if (dwBufLen > (SED_SIZE - m_dwSendBuffLen))
+	{
+		loggerIns()->error("SendProxyMsg dwBufLen={} is bigger than left buflen={}, discard SendProxyMsg m_i64Index={}, i64SrvIndex={}",
+			dwBufLen, SED_SIZE - m_dwSendBuffLen, m_i64Index, GetSrvIndex());
+		LeaveCriticalSection(&m_csSendLock);
+		return -1;
+	}
+
+	//发送数据
+	CopyMemory(m_szSendBuf + m_dwSendBuffLen, pMsgBuf, dwBufLen);
+	m_dwSendBuffLen += dwBufLen;
+	LeaveCriticalSection(&m_csSendLock);
+	OnSendBegin();
+	return 0;
 }
