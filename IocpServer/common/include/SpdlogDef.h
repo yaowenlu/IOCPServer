@@ -15,30 +15,35 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/logger.h"
 
-//logger名
-const std::string logger_name = "spd_logger";
-//日志文件名
-const std::string log_file_name = "spd_log";
-//每个文件最大100M
-const int log_file_size = 100 * 1024 * 1024;
-//最多保留5个文件
-const int log_file_num = 5;
+class CSpdlogImpl
+{
+public:
+	static CSpdlogImpl* GetInstance();
+	static void ReleaseInstance();
+private:
+	CSpdlogImpl();
+	~CSpdlogImpl();
+public:
+	//读取配置
+	void LoadCfg();
 
-static std::shared_ptr<spdlog::logger> g_logger;
+	//获取logger实例
+	std::shared_ptr<spdlog::logger> GetLogger();
+private:
+	static CSpdlogImpl* m_pInstance;//单例
+	std::shared_ptr<spdlog::logger> m_logger;//logger指针
+	std::string m_strFileName;//日志文件名
+	std::string m_strLoggerName;//logger名称
+	unsigned short m_usMaxFileNum;//最多保留几个个文件
+	unsigned int m_uFileSize;//每个文件大小
+	spdlog::level::level_enum m_logLevel;//当前日志等级
+	std::string m_strLogPattern;//日志格式
+};
+
+//获取logger
 static std::shared_ptr<spdlog::logger> loggerIns()
 {
-	if (nullptr == g_logger)
-	{
-		g_logger = spdlog::get(logger_name);
-		if (nullptr == g_logger)
-		{
-			g_logger = spdlog::rotating_logger_mt(logger_name, log_file_name, log_file_size, log_file_num);
-			g_logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%l]:%v");
-			g_logger->set_level(spdlog::level::debug);
-		}
-	}
-
-	return g_logger;
+	return CSpdlogImpl::GetInstance()->GetLogger();
 }
 
 #endif

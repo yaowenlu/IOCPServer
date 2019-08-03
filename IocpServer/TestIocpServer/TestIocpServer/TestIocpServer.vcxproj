@@ -223,6 +223,7 @@
     <ClInclude Include="..\..\common\include\EventDefine.h" />
     <ClInclude Include="..\..\common\include\JobManager.h" />
     <ClInclude Include="..\..\common\include\MsgDefine.h" />
+    <ClInclude Include="..\..\common\include\ProxyDefine.h" />
     <ClInclude Include="..\..\common\include\SocketManager.h" />
     <ClInclude Include="..\..\common\include\SpdlogDef.h" />
     <ClInclude Include="Resource.h" />
@@ -249,6 +250,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="..\..\common\src\SpdlogImpl.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

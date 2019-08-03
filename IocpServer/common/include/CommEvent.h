@@ -1,10 +1,10 @@
-#include "windows.h"
+#include "wtypes.h"
+#include "minwinbase.h"
 #include <string>
 #include <map>
 #include "EventDefine.h"
 
 using namespace std;
-
 
 struct sEventInfo
 {
