@@ -147,7 +147,7 @@ BOOL CGameServerDlg::OnInitDialog()
 	dwStyle |= LVS_EX_FULLROWSELECT;
 	dwStyle |= LVS_EX_GRIDLINES;
 	m_lstLogs.SetExtendedStyle(dwStyle);
-	m_lstLogs.InsertColumn(0, _T("日志信息"), LVCFMT_LEFT, 750);
+	m_lstLogs.InsertColumn(0, _T("日志信息"), LVCFMT_LEFT, 800);
 	ReadCfg();
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -204,7 +204,7 @@ HCURSOR CGameServerDlg::OnQueryDragIcon()
 void CGameServerDlg::OnBnClickedButtonStartService()
 {
 	WriteCfg();
-	int iRet = m_pServerImpl->StartService(m_sServerInfo);
+	int iRet = m_pServerImpl->StartService(m_sServerInfo, m_sProxyInfo);
 	CString strLog;
 	if(0 != iRet)
 	{
@@ -242,7 +242,7 @@ void CGameServerDlg::OnBnClickedButtonSaveCfg()
 
 void CGameServerDlg::OnBnClickedButtonUseProxy()
 {
-	m_bUseProxy = m_chUseProxy.GetCheck();
+	m_sProxyInfo.bUseProxy = m_chUseProxy.GetCheck();
 }
 
 
@@ -276,16 +276,16 @@ void CGameServerDlg::ReadCfg()
 	strTmp.Format(_T("%d"), m_sServerInfo.iSrvID);
 	m_edSrvID.SetWindowText(strTmp);
 
-	m_bUseProxy = GetPrivateProfileIntA(strKey.c_str(), "UseProxy", 1, strCfgFileName.c_str());
-	m_chUseProxy.SetCheck(m_bUseProxy);
+	m_sProxyInfo.bUseProxy = GetPrivateProfileIntA(strKey.c_str(), "UseProxy", 1, strCfgFileName.c_str());
+	m_chUseProxy.SetCheck(m_sProxyInfo.bUseProxy);
 
 	char szIp[32] = { 0 };
 	GetPrivateProfileStringA(strKey.c_str(), "ProxyIp", "127.0.0.1", szIp, sizeof(szIp), strCfgFileName.c_str());
-	m_strProxyIp = szIp;
 	SetWindowTextA(m_edProxyIp, szIp);
+	memcpy(m_sProxyInfo.szProxyIp, szIp, sizeof(szIp));
 
-	m_iProxyPort = GetPrivateProfileIntA(strKey.c_str(), "ProxyPort", 6080, strCfgFileName.c_str());
-	strTmp.Format(_T("%d"), m_iProxyPort);
+	m_sProxyInfo.iProxyPort = GetPrivateProfileIntA(strKey.c_str(), "ProxyPort", 6080, strCfgFileName.c_str());
+	strTmp.Format(_T("%d"), m_sProxyInfo.iProxyPort);
 	m_edProxyPort.SetWindowText(strTmp);
 }
 
@@ -323,19 +323,19 @@ void CGameServerDlg::WriteCfg()
 	WritePrivateProfileStringA(strKey.c_str(), "SrvID", TChar2String(szTmp).c_str(), strCfgFileName.c_str());
 	m_sServerInfo.iSrvID = atoi(TChar2String(szTmp).c_str());
 
-	m_bUseProxy = m_chUseProxy.GetCheck();
+	m_sProxyInfo.bUseProxy = m_chUseProxy.GetCheck();
 	CStringA strTmp;
-	strTmp.Format("%d", m_bUseProxy);
+	strTmp.Format("%d", m_sProxyInfo.bUseProxy);
 	WritePrivateProfileStringA(strKey.c_str(), "UseProxy", strTmp, strCfgFileName.c_str());
 
 	memset(szTmp, 0, sizeof(szTmp));
 	m_edProxyIp.GetWindowText(szTmp, sizeof(szTmp));
 	WritePrivateProfileStringA(strKey.c_str(), "ProxyIp", TChar2String(szTmp).c_str(), strCfgFileName.c_str());
-	m_strProxyIp = TChar2String(szTmp).c_str();
+	memcpy(m_sProxyInfo.szProxyIp, TChar2String(szTmp).c_str(), sizeof(m_sProxyInfo.szProxyIp));
 
 	memset(szTmp, 0, sizeof(szTmp));
 	m_edProxyPort.GetWindowText(szTmp, sizeof(szTmp));
 	WritePrivateProfileStringA(strKey.c_str(), "ProxyPort", TChar2String(szTmp).c_str(), strCfgFileName.c_str());
-	m_iProxyPort = atoi(TChar2String(szTmp).c_str());
+	m_sProxyInfo.iProxyPort = atoi(TChar2String(szTmp).c_str());
 	return;
 }

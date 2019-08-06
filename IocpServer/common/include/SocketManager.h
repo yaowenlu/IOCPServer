@@ -69,9 +69,6 @@ public:
 	//增加任务
 	virtual bool AddOneJob(sJobItem *pJob);
 
-	//处理任务
-	virtual bool ProcessJob();
-
 	//定时器响应
 	virtual void OnBaseTimer();
 
@@ -86,6 +83,11 @@ public:
 
 	//增加心跳Job
 	virtual void AddHeartJob();
+
+protected:
+	//处理任务
+	virtual bool ProcessJob() = 0;
+
 protected:
 	std::map<unsigned __int64, CClientSocket*> m_mapClientConnect;
 	std::list<CClientSocket *> m_lstFreeClientConn;

@@ -50,10 +50,22 @@ private:
 	CButton m_btDisconnect;
 	// 发送消息
 	CButton m_btSendMsg;
+	//是否使用代理
+	CButton m_chUseProxy;
+	//保存配置
+	CButton m_btSaveCfg;
 private:
 	yClientImpl* m_pClientImpl;
+	sConnectInfo m_sConnectInfo;
+	std::string m_strSendMsg;
 public:
 	afx_msg void OnBnClickedButtonConnect();
 	afx_msg void OnBnClickedButtonDisconnect();
 	afx_msg void OnBnClickedButtonSendmsg();
+	afx_msg void OnBnClickedButtonSaveCfg();
+	afx_msg void OnBnClickedButtonUseProxy();
+	//读取配置
+	void ReadCfg();
+	//写入配置
+	void WriteCfg();
 };

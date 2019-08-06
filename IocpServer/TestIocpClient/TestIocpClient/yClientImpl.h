@@ -24,6 +24,15 @@ enum
 	CODE_SERVICE_UNKNOW_ERROR=100		//未知错误
 };
 
+//连接服务器信息
+struct sConnectInfo
+{
+	bool bUseProxy;			//是否是代理服务器
+	char szServerIp[32];	//服务器IP
+	int iServerPort;		//服务器端口
+	int iConnectNum;		//连接数
+};
+
 //线程启动参数结构
 struct sThreadData	
 {
@@ -44,8 +53,11 @@ public:
 	//初始化数据
 	virtual void InitData();
 
-	//处理消息
-	virtual bool HandleMsg(void *pMsgBuf, DWORD dwBufLen);
+	//处理普通消息
+	virtual bool HandleNormalMsg(void *pMsgBuf, DWORD dwBufLen);
+
+	//处理代理消息
+	virtual bool HandleProxyMsg(void *pMsgBuf, DWORD dwBufLen);
 
 	//设置服务端索引
 	void SetSrvIndex(unsigned __int64 i64SrvIndex){m_i64SrvIndex = i64SrvIndex;}
@@ -67,6 +79,12 @@ public:
 	//收到一个连接
 	virtual CClientSocket* ActiveOneConnection(SOCKET hSocket);
 
+	//发送代理数据
+	virtual int SendProxyMsg(unsigned __int64 i64Index, void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode);
+
+	//处理任务
+	virtual bool ProcessJob();
+
 	//关闭指定数量的连接
 	bool CloseConnection(DWORD dwNum);
 };
@@ -78,7 +96,7 @@ public:
 	~yClientImpl();
 
 	//连接服务器
-	int ConnectServer(std::string strIp, unsigned short usPort, unsigned short usConnectNum);
+	int ConnectServer(sConnectInfo connectInfo);
 
 	//断开连接
 	int DisConnectServer();
@@ -122,8 +140,7 @@ private:
 	HANDLE m_hJobCompletionPort;//完成端口
 	CCltSocketManager *m_pCltSocketManage;
 
-	std::string m_strServerIp;//服务器ip
-	unsigned short m_usServerPort;//服务器端口
+	sConnectInfo m_connectInfo;
 };
 
 #endif

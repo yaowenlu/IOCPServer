@@ -39,6 +39,12 @@ class CSrvClientSocket:public CClientSocket
 public:
 	CSrvClientSocket();
 	~CSrvClientSocket();
+
+	//处理普通消息
+	virtual bool HandleNormalMsg(void *pMsgBuf, DWORD dwBufLen);
+
+	//处理代理消息
+	virtual bool HandleProxyMsg(void *pMsgBuf, DWORD dwBufLen);
 };
 
 //服务端Socket管理类
@@ -50,6 +56,9 @@ public:
 
 	//收到一个连接
 	virtual CClientSocket* ActiveOneConnection(SOCKET hSocket);
+
+	//处理任务
+	virtual bool ProcessJob();
 };
 
 class yServerImpl

@@ -212,7 +212,6 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <None Include="ReadMe.txt" />
     <None Include="res\ServerProxy.ico" />
     <None Include="res\ServerProxy.rc2" />
   </ItemGroup>

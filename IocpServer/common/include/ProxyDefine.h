@@ -10,8 +10,7 @@
 
 struct sProxyHead
 {
-	DWORD dwTotalLen;	//消息总长度（包含sProxyHead大小）
-	enHeadType iHeadType;//消息头类型
+	sHeadComm headComm;	//通用头
 	enSrvType iSrcType;	//消息来源类型
 	enSrvType iDstType;	//消息目的地类型
 	USHORT uSrcID;		//消息来源ID(相同类型的服务可能有多个，通过ID区分)

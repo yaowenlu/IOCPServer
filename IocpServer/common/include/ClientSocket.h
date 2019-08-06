@@ -31,24 +31,23 @@ public:
 
 	//设置管理类
 	void SetManager(CSocketManager* pManager){ m_pManager = pManager; }
+
 	inline void SetSocket(SOCKET hSocket){m_hSocket = hSocket;}
 	inline SOCKET GetSocket(){return m_hSocket;}
+
 	inline void SetIndex(unsigned __int64 i64Index){m_i64Index = i64Index;}
 	inline unsigned __int64 GetIndex(){return m_i64Index;}
+
 	DWORD GetTimeOutCount(){return m_dwTimeOutCount;}
 	//代理服务相关
-	void SetSrvType(enSrvType iSrvType) {
-		m_iSrvType = iSrvType;
-	}
-	enSrvType GetSrvType() {
-		return m_iSrvType;
-	}
-	void SetSrvID(USHORT usSrvID) {
-		m_usSrvID = usSrvID;
-	}
-	USHORT GetSrvID() {
-		return m_usSrvID;
-	}
+	void SetSrvType(enSrvType iSrvType) { m_iSrvType = iSrvType; }
+	enSrvType GetSrvType() { return m_iSrvType; }
+
+	void SetSrvID(USHORT usSrvID) {	m_usSrvID = usSrvID;}
+	USHORT GetSrvID() {	return m_usSrvID;}
+
+	void SetIsAsClinet(bool bAsClient) { m_bIsAsClient = bAsClient; }
+	bool GetIsAsClinet() { return m_bIsAsClient; }
 
 	//开始接收数据
 	bool OnRecvBegin();
@@ -62,6 +61,9 @@ public:
 	//发送代理数据
 	int SendProxyMsg(void *pMsgBuf, DWORD dwBufLen);
 
+	//发送代理数据
+	int SendProxyMsg(sProxyHead proxyHead, void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode);
+
 	//开始发送
 	bool OnSendBegin();
 
@@ -69,7 +71,13 @@ public:
 	bool OnSendCompleted(DWORD dwSendCount);
 
 	//处理消息
-	virtual bool HandleMsg(void *pMsgBuf, DWORD dwBufLen);
+	bool HandleMsg(void *pMsgBuf, DWORD dwBufLen);
+
+	//处理普通消息
+	virtual bool HandleNormalMsg(void *pMsgBuf, DWORD dwBufLen);
+
+	//处理代理消息
+	virtual bool HandleProxyMsg(void *pMsgBuf, DWORD dwBufLen);
 
 	//设置服务端索引
 	virtual void SetSrvIndex(unsigned __int64 i64SrvIndex){ return; }
@@ -80,7 +88,7 @@ public:
 private:
 	CSocketManager* m_pManager;
 	SOCKET m_hSocket;//连接对应的socket
-	unsigned __int64 m_i64Index;//用来识别唯一的客户端连接
+	unsigned __int64 m_i64Index;//用来识别唯一的连接
 	CRITICAL_SECTION m_csRecvLock;
 	CRITICAL_SECTION m_csSendLock;
 	CRITICAL_SECTION m_csStateLock;
@@ -97,12 +105,10 @@ public:
 	DWORD			m_dwRecvBuffLen;	//接收缓冲区长度
 	sOverLapped		m_SendOverData;		//发送数据重叠结构
 	sOverLapped		m_RecvOverData;		//接收数据重叠结构
-
 private:
-	//自己的类型
-	enSrvType m_iSrvType;
-	//自己的ID
-	USHORT m_usSrvID;
+	enSrvType		m_iSrvType;		//自己的类型
+	USHORT			m_usSrvID;		//自己的ID
+	bool			m_bIsAsClient;	//标识此socket是不是作为客户端连接到其他服务器
 };
 
 #endif

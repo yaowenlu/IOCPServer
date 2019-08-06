@@ -72,7 +72,6 @@ public:
 	void WriteCfg();
 private:
 	sServerInfo m_sServerInfo;//服务信息
-	bool m_bUseProxy;
-	std::string m_strProxyIp;
+	sProxyInfo m_sProxyInfo;//代理服务器信息
 	int m_iProxyPort;
 };

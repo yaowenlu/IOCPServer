@@ -292,124 +292,6 @@ bool CSocketManager::AddOneJob(sJobItem *pJob)
 	return bSucc;
 }
 
-//处理任务
-bool CSocketManager::ProcessJob()
-{
-	sJobItem* pJob = nullptr;
-	EnterCriticalSection(&m_csJobLock);
-	loggerIns()->debug("ProcessJob m_lstJobItem.size()={}", m_lstJobItem.size());
-	if(m_lstJobItem.size() > 0)
-	{
-		pJob = *(m_lstJobItem.begin());
-		m_lstJobItem.pop_front();
-	}
-	LeaveCriticalSection(&m_csJobLock);
-	if(nullptr == pJob)
-	{
-		return false;
-	}
-	loggerIns()->debug("ProcessJob i64Index={}, dwBufLen={}", pJob->i64Index, pJob->dwBufLen);
-	EnterCriticalSection(&m_csActiveConnectLock);
-	//发送给所有人
-	if(0 == pJob->i64Index)
-	{
-		std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.begin();
-		for(;iterClient != m_mapClientConnect.end();)
-		{
-			if(nullptr != iterClient->second)
-			{
-				iterClient->second->HandleMsg(pJob->pJobBuff, pJob->dwBufLen);
-				++iterClient;
-			}
-			else
-			{
-				iterClient = m_mapClientConnect.erase(iterClient);
-				--m_iClientNums;
-			}
-		}
-	}
-	else
-	{
-		std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.find(pJob->i64Index);
-		if(iterClient != m_mapClientConnect.end() && nullptr != iterClient->second)
-		{
-			enHeadType* pHeadType = reinterpret_cast<enHeadType*>(pJob->pJobBuff + sizeof(DWORD));
-			//代理消息，直接转发
-			if (pHeadType && PROXY_HEAD == *pHeadType)
-			{
-				sProxyHead* pProxyHead = reinterpret_cast<sProxyHead*>(pJob->pJobBuff);
-				if (pProxyHead && pProxyHead->iDstType != INVALID_SRV)
-				{
-					std::map<unsigned __int64, CClientSocket*>::iterator iterClt = m_mapClientConnect.begin();
-					//找到对应的服务
-					for (;iterClt != m_mapClientConnect.end();iterClt++)
-					{
-						//点对点
-						if (pProxyHead->iTransType == trans_p2p)
-						{
-							if (iterClt->second->GetSrvType() == pProxyHead->iDstType && iterClt->second->GetSrvID() == pProxyHead->uDstID)
-							{
-								//一般都是请求后返回的结果
-								if (pProxyHead->i64Index != 0)
-								{
-									//指定ID
-									if (pProxyHead->i64Index == iterClt->first)
-									{
-										iterClient->second->SendProxyMsg(pJob->pJobBuff, pJob->dwBufLen);
-									}
-								}
-								//一般都是发起的请求
-								else
-								{
-									//记录请求者，在应答时返回结果给请求者
-									pProxyHead->i64Index = iterClt->first;
-									iterClient->second->SendProxyMsg(pJob->pJobBuff, pJob->dwBufLen);
-								}
-							}
-							break;
-						}
-						//点到组
-						else if (pProxyHead->iTransType == trans_p2g)
-						{
-							if (iterClt->second->GetSrvType() == pProxyHead->iDstType)
-							{
-								pProxyHead->i64Index = iterClt->first;
-								iterClient->second->SendProxyMsg(pJob->pJobBuff, pJob->dwBufLen);
-							}
-						}
-						else
-						{
-							loggerIns()->error("iTransType={} is illegal!");
-							break;
-						}
-					}
-				}
-				else
-				{
-					loggerIns()->warn("ProcessJob pProxyHead invalid!");
-				}
-			}
-			//正常消息直接处理
-			else if (pHeadType && MSG_HEAD == *pHeadType)
-			{
-				iterClient->second->HandleMsg(pJob->pJobBuff, pJob->dwBufLen);
-			}
-			else
-			{
-				loggerIns()->warn("ProcessJob pHeadType invalid!");
-			}
-		}
-		else
-		{
-			loggerIns()->warn("ProcessJob i64Index={} not exists!", pJob->i64Index);
-		}
-	}
-	LeaveCriticalSection(&m_csActiveConnectLock);
-	//释放Job内存
-	m_jobManager.ReleaseJobItem(pJob);
-	return true;
-}
-
 //定时器
 void CSocketManager::OnBaseTimer()
 {
@@ -510,17 +392,17 @@ void CSocketManager::AddHeartJob()
 {
 	//发送心跳数据
 	NetMsgHead msgHead;
-	msgHead.dwMsgSize = sizeof(NetMsgHead);
-	msgHead.iHeadType = MSG_HEAD;
+	msgHead.headComm.uTotalLen = sizeof(NetMsgHead);
+	msgHead.headComm.iHeadType = MSG_HEAD;
 	msgHead.dwMainID = MAIN_KEEP_ALIVE;
 	msgHead.dwAssID = ASS_SC_KEEP_ALIVE;
 	msgHead.dwHandleCode = 0;
 	msgHead.dwReserve = 0;
-	sJobItem* pJob = m_jobManager.NewJobItem(msgHead.dwMsgSize);
+	sJobItem* pJob = m_jobManager.NewJobItem(msgHead.headComm.uTotalLen);
 	if(nullptr != pJob)
 	{
-		pJob->i64Index = 0;
-		pJob->dwBufLen = msgHead.dwMsgSize;
+		pJob->i64Index = 0;//群发客户端
+		pJob->dwBufLen = msgHead.headComm.uTotalLen;
 		memcpy(pJob->pJobBuff, &msgHead, pJob->dwBufLen);
 		if (AddOneJob(pJob))
 		{

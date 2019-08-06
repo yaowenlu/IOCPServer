@@ -6,7 +6,6 @@
 通用定义
 **************************************/
 
-
 //头类型
 enum enHeadType
 {
@@ -33,7 +32,14 @@ enum enSrvType
 	LOGIN_SRV = 4,		//登录服务器
 };
 
+//通用头定义
+struct sHeadComm
+{
+	unsigned int uTotalLen;	//总长度
+	enHeadType iHeadType;	//头类型
+};
 
+//服务器自动信息
 struct sServerInfo
 {
 	int iListenPort;//监听端口
@@ -42,5 +48,14 @@ struct sServerInfo
 	int iSrvType;//服务类型
 	int iSrvID;//服务ID
 };
+
+//代理服务器信息
+struct sProxyInfo
+{
+	bool bUseProxy;
+	char szProxyIp[32];
+	int iProxyPort;
+};
+
 
 #endif

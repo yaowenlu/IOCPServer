@@ -7,6 +7,7 @@
 #include "TestIocpClient.h"
 #include "TestIocpClientDlg.h"
 #include "afxdialogex.h"
+#include "SpdlogDef.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -80,6 +81,7 @@ CTestIocpClientDlg::~CTestIocpClientDlg()
 		delete m_pClientImpl;
 		m_pClientImpl = nullptr;
 	}
+	CSpdlogImpl::GetInstance()->ReleaseInstance();
 }
 
 void CTestIocpClientDlg::DoDataExchange(CDataExchange* pDX)
@@ -93,6 +95,9 @@ void CTestIocpClientDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_BUTTON_CONNECT, m_btConnect);
 	DDX_Control(pDX, IDC_BUTTON_DISCONNECT, m_btDisconnect);
 	DDX_Control(pDX, IDC_BUTTON_SENDMSG, m_btSendMsg);
+	DDX_Control(pDX, IDC_CHECK_USE_PROXY, m_chUseProxy);
+	DDX_Control(pDX, IDC_BUTTON_SAVECFG, m_btSaveCfg);
+	
 }
 
 BEGIN_MESSAGE_MAP(CTestIocpClientDlg, CDialogEx)
@@ -102,6 +107,8 @@ BEGIN_MESSAGE_MAP(CTestIocpClientDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_CONNECT, &CTestIocpClientDlg::OnBnClickedButtonConnect)
 	ON_BN_CLICKED(IDC_BUTTON_DISCONNECT, &CTestIocpClientDlg::OnBnClickedButtonDisconnect)
 	ON_BN_CLICKED(IDC_BUTTON_SENDMSG, &CTestIocpClientDlg::OnBnClickedButtonSendmsg)
+	ON_BN_CLICKED(IDC_CHECK_USE_PROXY, &CTestIocpClientDlg::OnBnClickedButtonUseProxy)
+	ON_BN_CLICKED(IDC_BUTTON_SAVECFG, &CTestIocpClientDlg::OnBnClickedButtonSaveCfg)
 END_MESSAGE_MAP()
 
 
@@ -141,13 +148,9 @@ BOOL CTestIocpClientDlg::OnInitDialog()
 	dwStyle |= LVS_EX_FULLROWSELECT;
 	dwStyle |= LVS_EX_GRIDLINES;
 	m_lstLog.SetExtendedStyle(dwStyle);
-
-	m_lstLog.InsertColumn(0, _T("日志信息"), LVCFMT_LEFT, 750);
-	m_edServerIp.SetWindowText(_T("127.0.0.1"));
-	m_edServerPort.SetWindowText(_T("6080"));
-	m_edClientNum.SetWindowText(_T("3000"));
-	m_edMsgContent.SetWindowText(_T("test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!test msg!"));
-
+	m_lstLog.InsertColumn(0, _T("日志信息"), LVCFMT_LEFT, 835);
+	//读取原配置
+	ReadCfg();
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
 
@@ -202,26 +205,9 @@ HCURSOR CTestIocpClientDlg::OnQueryDragIcon()
 
 void CTestIocpClientDlg::OnBnClickedButtonConnect()
 {
-	// TODO: 在此添加控件通知处理程序代码
-	//获取服务器地址
-	TCHAR szIp[32] = {0};
-	m_edServerIp.GetWindowText(szIp, 32);
-
-	//获取服务器端口
-	TCHAR szPort[32] = {0};
-	m_edServerPort.GetWindowText(szPort, 32);
-	int iPort = _wtoi(szPort);
-
-	//获取连接数
-	TCHAR szNum[32] = {0};
-	m_edClientNum.GetWindowText(szNum, 32);
-	int iNum = _wtoi(szNum);
-
+	WriteCfg();
 	CString strLog;
-	strLog.Format(_T("ConnectServer ip=%s, port=%d, num=%d"), szIp, iPort, iNum);
-	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
-
-	int iRet = m_pClientImpl->ConnectServer(TChar2String(szIp), iPort, iNum);
+	int iRet = m_pClientImpl->ConnectServer(m_sConnectInfo);
 	strLog.Format(_T("ConnectServer iRet=%d"), iRet);
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
 }
@@ -241,9 +227,88 @@ void CTestIocpClientDlg::OnBnClickedButtonSendmsg()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	TCHAR szMsg[MAX_SEND_SIZE] = {0};
-	m_edMsgContent.GetWindowText(szMsg, MAX_SEND_SIZE);
-	m_pClientImpl->SendData(szMsg, sizeof(szMsg), 100, 10, 1);
+	m_edMsgContent.GetWindowText(szMsg, sizeof(szMsg));
+	m_pClientImpl->SendData((void*)(TChar2String(szMsg).c_str()), MAX_SEND_SIZE*sizeof(char), 100, 10, 1);
 	CString strLog;
 	strLog.Format(_T("SendData szMsg=%s"), szMsg);
 	m_lstLog.InsertItem(m_lstLog.GetItemCount(), strLog);
+}
+
+void CTestIocpClientDlg::OnBnClickedButtonSaveCfg()
+{
+	WriteCfg();
+	m_lstLog.InsertItem(m_lstLog.GetItemCount(), _T("SaveCfg finish!"));
+}
+
+void CTestIocpClientDlg::OnBnClickedButtonUseProxy()
+{
+	m_sConnectInfo.bUseProxy = m_chUseProxy.GetCheck();
+}
+
+//读取配置文件
+void CTestIocpClientDlg::ReadCfg()
+{
+	char szPath[MAX_PATH] = { 0 };
+	GetCurrentDirectoryA(sizeof(szPath), szPath);
+	std::string strCfgFileName = szPath;
+	strCfgFileName += "/conf/CommonCfg.ini";
+
+	std::string strKey = "config";
+	CString strTmp;
+	m_sConnectInfo.bUseProxy = GetPrivateProfileIntA(strKey.c_str(), "UseProxy", 1, strCfgFileName.c_str());
+	m_chUseProxy.SetCheck(m_sConnectInfo.bUseProxy);
+
+	char szIp[32] = { 0 };
+	GetPrivateProfileStringA(strKey.c_str(), "ServerIp", "127.0.0.1", szIp, sizeof(szIp), strCfgFileName.c_str());
+	SetWindowTextA(m_edServerIp, szIp);
+	memcpy(m_sConnectInfo.szServerIp, szIp, sizeof(szIp));
+
+	m_sConnectInfo.iServerPort = GetPrivateProfileIntA(strKey.c_str(), "ServerPort", 6080, strCfgFileName.c_str());
+	strTmp.Format(_T("%d"), m_sConnectInfo.iServerPort);
+	m_edServerPort.SetWindowText(strTmp);
+
+	m_sConnectInfo.iConnectNum = GetPrivateProfileIntA(strKey.c_str(), "ConnectNum", 3000, strCfgFileName.c_str());
+	strTmp.Format(_T("%d"), m_sConnectInfo.iConnectNum);
+	m_edClientNum.SetWindowText(strTmp);
+
+	char szMsg[MAX_SEND_SIZE] = { 0 };
+	GetPrivateProfileStringA(strKey.c_str(), "SendMsg", "test msg!", szMsg, sizeof(szMsg), strCfgFileName.c_str());
+	SetWindowTextA(m_edMsgContent, szMsg);
+	m_strSendMsg = szMsg;
+}
+
+//读取配置文件
+void CTestIocpClientDlg::WriteCfg()
+{
+	char szPath[MAX_PATH] = { 0 };
+	GetCurrentDirectoryA(sizeof(szPath), szPath);
+	std::string strCfgFileName = szPath;
+	strCfgFileName += "/conf/CommonCfg.ini";
+
+	std::string strKey = "config";
+	m_sConnectInfo.bUseProxy = m_chUseProxy.GetCheck();
+	CStringA strTmp;
+	strTmp.Format("%d", m_sConnectInfo.bUseProxy);
+	WritePrivateProfileStringA(strKey.c_str(), "UseProxy", strTmp, strCfgFileName.c_str());
+
+	TCHAR szTmp[64] = { 0 };
+	m_edServerIp.GetWindowText(szTmp, sizeof(szTmp));
+	WritePrivateProfileStringA(strKey.c_str(), "ServerIp", TChar2String(szTmp).c_str(), strCfgFileName.c_str());
+	memcpy(m_sConnectInfo.szServerIp, TChar2String(szTmp).c_str(), sizeof(m_sConnectInfo.szServerIp));
+
+	memset(szTmp, 0, sizeof(szTmp));
+	m_edServerPort.GetWindowText(szTmp, sizeof(szTmp));
+	WritePrivateProfileStringA(strKey.c_str(), "ServerPort", TChar2String(szTmp).c_str(), strCfgFileName.c_str());
+	m_sConnectInfo.iServerPort = atoi(TChar2String(szTmp).c_str());
+
+	memset(szTmp, 0, sizeof(szTmp));
+	m_edClientNum.GetWindowText(szTmp, sizeof(szTmp));
+	WritePrivateProfileStringA(strKey.c_str(), "ConnectNum", TChar2String(szTmp).c_str(), strCfgFileName.c_str());
+	m_sConnectInfo.iConnectNum = atoi(TChar2String(szTmp).c_str());
+
+	char szMsg[MAX_SEND_SIZE] = { 0 };
+	GetWindowTextA(m_edMsgContent, szMsg, sizeof(szMsg));
+	WritePrivateProfileStringA(strKey.c_str(), "SendMsg", szMsg, strCfgFileName.c_str());
+	m_strSendMsg = szMsg;
+	return;
 }

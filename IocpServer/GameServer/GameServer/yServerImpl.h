@@ -20,6 +20,7 @@ enum
 	CODE_SERVICE_IO_FAILED,				//启动IO线程失败
 	CODE_SERVICE_WORK_FAILED,			//启动工作线程失败
 	CODE_SERVICE_LISTEN_FAILED,			//监听失败
+	CODE_SERVICE_CONNECT_FAILED,		//连接代理服务器失败
 	CODE_SERVICE_TIMER_FAILED,			//启动定时器线程失败
 	CODE_SERVICE_UNKNOW_ERROR=100		//未知错误
 };
@@ -39,6 +40,15 @@ class CSrvClientSocket:public CClientSocket
 public:
 	CSrvClientSocket();
 	~CSrvClientSocket();
+
+	//处理普通消息
+	virtual bool HandleNormalMsg(void *pMsgBuf, DWORD dwBufLen);
+
+	//处理代理消息
+	virtual bool HandleProxyMsg(void *pMsgBuf, DWORD dwBufLen);
+
+	//发送代理数据
+	virtual int SendProxyMsg(sProxyHead proxyHead, void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode);
 };
 
 //服务端Socket管理类
@@ -50,6 +60,12 @@ public:
 
 	//收到一个连接
 	virtual CClientSocket* ActiveOneConnection(SOCKET hSocket);
+
+	//处理任务
+	virtual bool ProcessJob();
+
+	//发送代理数据
+	int SendProxyMsg(unsigned __int64 i64Index, void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode);
 };
 
 class yServerImpl
@@ -58,7 +74,7 @@ public:
 	yServerImpl();
 	~yServerImpl();
 	//开始服务
-	int StartService(sServerInfo serverInfo);
+	int StartService(sServerInfo serverInfo, sProxyInfo proxyInfo);
 
 	//停止服务
 	int StopService();
@@ -72,6 +88,10 @@ protected:
 
 	//开始监听
 	int StartListen(int iPort);
+
+	//连接代理服务器
+	bool ConnectProxy();
+
 
 	//开始定时器
 	int StartTimer();
@@ -104,6 +124,7 @@ protected:
 	CSrvSocketManager *m_pSrvSocketManager;
 private:
 	sServerInfo m_serverInfo;
+	sProxyInfo m_proxyInfo;
 };
 
 #endif

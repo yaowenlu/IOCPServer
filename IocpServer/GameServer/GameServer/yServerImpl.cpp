@@ -2,6 +2,7 @@
 #include "yServerImpl.h"
 #include "CommEvent.h"
 #include "SpdlogDef.h"
+#include <WS2tcpip.h>
 
 #pragma comment(lib,"ws2_32.lib")
 
@@ -15,6 +16,62 @@ CSrvClientSocket::CSrvClientSocket()
 CSrvClientSocket::~CSrvClientSocket()
 {
 
+}
+
+//处理普通消息
+bool CSrvClientSocket::HandleNormalMsg(void *pMsgBuf, DWORD dwBufLen)
+{
+	if (__super::HandleNormalMsg(pMsgBuf, dwBufLen))
+	{
+		return true;
+	}
+
+	NetMsgHead* pMsgHead = reinterpret_cast<NetMsgHead*>(pMsgBuf);
+	//直接返回消息给客户端（暂时没有做业务相关处理）
+	if (pMsgHead)
+	{
+		loggerIns()->debug("HandleNormalMsg m_i64Index={}, dwMsgSize={}, dwMainID={}, dwAssID={}, dwHandleCode={}, dwReserve={}",
+			GetIndex(), pMsgHead->headComm.uTotalLen, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode, pMsgHead->dwReserve);
+		DWORD dwDataLen = dwBufLen - sizeof(NetMsgHead);
+		BYTE *pDataBuf = (BYTE*)pMsgBuf + sizeof(NetMsgHead);
+		SendData(pDataBuf, dwDataLen, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode);
+	}
+	else
+	{
+		loggerIns()->error("HandleNormalMsg m_i64Index={}, pMsgHead is null!", GetIndex());
+	}
+	return true;
+}
+
+//处理代理消息
+bool CSrvClientSocket::HandleProxyMsg(void *pMsgBuf, DWORD dwBufLen)
+{
+	if (__super::HandleProxyMsg(pMsgBuf, dwBufLen))
+	{
+		return true;
+	}
+	sProxyHead *pHead = reinterpret_cast<sProxyHead*>(pMsgBuf);
+	if (!pHead)
+	{
+		loggerIns()->error("HandleProxyMsg pHead is null!");
+		return true;
+	}
+
+	//直接返回消息给代理（暂时没有做业务相关处理）
+	pHead->iDstType = pHead->iSrcType;
+	pHead->iSrcType = GetSrvType();
+	pHead->uDstID = pHead->uSrcID;
+	pHead->uSrcID = GetSrvID();
+	__super::SendProxyMsg(pMsgBuf, dwBufLen);
+	return true;
+}
+
+//发送代理数据
+int CSrvClientSocket::SendProxyMsg(sProxyHead proxyHead, void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode)
+{
+	proxyHead.iSrcType = GetSrvType();
+	proxyHead.uSrcID = GetSrvID();
+	return __super::SendProxyMsg(proxyHead, pData, dwDataLen, dwMainID, dwAssID, dwHandleCode);
 }
 
 /************************************************************************/
@@ -76,6 +133,125 @@ CClientSocket* CSrvSocketManager::ActiveOneConnection(SOCKET hSocket)
 	return pClient;
 }
 
+//处理任务
+bool CSrvSocketManager::ProcessJob()
+{
+	sJobItem* pJob = nullptr;
+	EnterCriticalSection(&m_csJobLock);
+	loggerIns()->debug("ProcessJob m_lstJobItem.size()={}", m_lstJobItem.size());
+	if (m_lstJobItem.size() > 0)
+	{
+		pJob = *(m_lstJobItem.begin());
+		m_lstJobItem.pop_front();
+	}
+	LeaveCriticalSection(&m_csJobLock);
+	if (nullptr == pJob)
+	{
+		return false;
+	}
+	loggerIns()->debug("ProcessJob i64Index={}, dwBufLen={}", pJob->i64Index, pJob->dwBufLen);
+	EnterCriticalSection(&m_csActiveConnectLock);
+	do
+	{
+		//发送给所有人
+		if (0 == pJob->i64Index)
+		{
+			std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.begin();
+			for (;iterClient != m_mapClientConnect.end();)
+			{
+				if (nullptr != iterClient->second)
+				{
+					//只会给连接到自己的客户端群发消息
+					if (NORMAL_CLIENT == iterClient->second->GetSrvType())
+					{
+						iterClient->second->HandleMsg(pJob->pJobBuff, pJob->dwBufLen);
+					}
+					++iterClient;
+				}
+				else
+				{
+					iterClient = m_mapClientConnect.erase(iterClient);
+					--m_iClientNums;
+				}
+			}
+		}
+		else
+		{
+			std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.find(pJob->i64Index);
+			//消息发起者没有断开连接
+			if (iterClient != m_mapClientConnect.end() && nullptr != iterClient->second)
+			{
+				sHeadComm* pHead = reinterpret_cast<sHeadComm*>(pJob->pJobBuff);
+				if (!pHead)
+				{
+					loggerIns()->warn("ProcessJob pHeadType invalid!");
+					break;
+				}
+				//代理消息
+				if (PROXY_HEAD == pHead->iHeadType)
+				{
+					iterClient->second->HandleProxyMsg(pJob->pJobBuff, pJob->dwBufLen);
+				}
+				//正常消息
+				else if (MSG_HEAD == pHead->iHeadType)
+				{
+					iterClient->second->HandleNormalMsg(pJob->pJobBuff, pJob->dwBufLen);
+				}
+			}
+			else
+			{
+				loggerIns()->warn("ProcessJob i64Index={} not exists!", pJob->i64Index);
+			}
+		}
+	} while (false);
+
+	LeaveCriticalSection(&m_csActiveConnectLock);
+	//释放Job内存
+	m_jobManager.ReleaseJobItem(pJob);
+	return true;
+}
+
+//发送代理数据
+int CSrvSocketManager::SendProxyMsg(unsigned __int64 i64Index, void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode)
+{
+	EnterCriticalSection(&m_csActiveConnectLock);
+	sProxyHead proxyHead;
+	//所有代理
+	if (0 == i64Index)
+	{
+		std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.begin();
+		for (;iterClient != m_mapClientConnect.end();)
+		{
+			if (nullptr != iterClient->second)
+			{
+				iterClient->second->SendProxyMsg(proxyHead, pData, dwDataLen, dwMainID, dwAssID, dwHandleCode);
+				++iterClient;
+			}
+			else
+			{
+				iterClient = m_mapClientConnect.erase(iterClient);
+				--m_iClientNums;
+			}
+		}
+	}
+	//指定代理
+	else
+	{
+		std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.find(i64Index);
+		if (iterClient != m_mapClientConnect.end())
+		{
+			if (nullptr != iterClient->second)
+			{
+				iterClient->second->SendProxyMsg(proxyHead, pData, dwDataLen, dwMainID, dwAssID, dwHandleCode);
+			}
+		}
+	}
+	LeaveCriticalSection(&m_csActiveConnectLock);
+	return 0;
+}
+
+/***************************************
+***************************************/
 yServerImpl::yServerImpl()
 {		
 	m_bWorking = false;
@@ -186,9 +362,10 @@ int yServerImpl::StopService()
 	return 0;
 }
 
-int yServerImpl::StartService(sServerInfo serverInfo)
+int yServerImpl::StartService(sServerInfo serverInfo, sProxyInfo proxyInfo)
 {
 	m_serverInfo = serverInfo;
+	m_proxyInfo = proxyInfo;
 	loggerIns()->debug("yServerImpl StartService! iListenPort={},iIoThreadNum={},iJobThreadNum={},iSrvType={},iSrvID={}", 
 		serverInfo.iListenPort, serverInfo.iIoThreadNum, serverInfo.iJobThreadNum, serverInfo.iSrvType, serverInfo.iSrvID);
 	if(m_bWorking)
@@ -273,6 +450,20 @@ int yServerImpl::StartService(sServerInfo serverInfo)
 	{
 		StopService();
 		return CODE_SERVICE_LISTEN_FAILED;
+	}
+
+	//连接代理服务器
+	if (m_proxyInfo.bUseProxy)
+	{
+		//建立多个连接，方便不同连接同时收发数据
+		//for (DWORD i = 0;i < SystemInfo.dwNumberOfProcessors;i++)
+		{
+			if (!ConnectProxy())
+			{
+				StopService();
+				return CODE_SERVICE_CONNECT_FAILED;
+			}
+		}
 	}
 
 	//启动定时器
@@ -398,6 +589,52 @@ int yServerImpl::StartListen(int iPort)
 	WaitForSingleObject(m_hThreadEvent, INFINITE);
 	ResetEvent(m_hThreadEvent);
 	return 0; 
+}
+
+//连接代理服务器
+bool yServerImpl::ConnectProxy()
+{
+	//客户端套接字
+	SOCKET hSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (hSocket == INVALID_SOCKET)
+	{
+		loggerIns()->error("ConnectProxy fail, socket error={}", WSAGetLastError());
+		return false;
+	}
+
+	sockaddr_in serAddr;
+	serAddr.sin_family = AF_INET;
+	serAddr.sin_port = htons(m_proxyInfo.iProxyPort);
+	inet_pton(AF_INET, m_proxyInfo.szProxyIp, (void*)&serAddr.sin_addr.S_un.S_addr);
+	//与指定IP地址和端口的服务端连接
+	if (connect(hSocket, (sockaddr *)&serAddr, sizeof(serAddr)) == SOCKET_ERROR)
+	{
+		loggerIns()->error("connect error={}", WSAGetLastError());
+		closesocket(hSocket);
+		return false;
+	}
+
+	CClientSocket* pClient = m_pSrvSocketManager->ActiveOneConnection(hSocket);
+	if (nullptr != pClient)
+	{
+		HANDLE hCompletionPort = ::CreateIoCompletionPort((HANDLE)hSocket, m_hIoCompletionPort, (ULONG_PTR)pClient, 0);
+		//出错了
+		if (NULL == hCompletionPort || !pClient->OnRecvBegin())
+		{
+			loggerIns()->warn("CreateIoCompletionPort or OnRecvBegin error!");
+			return false;
+		}
+		
+		//发送服务消息
+		sSrvInfo srvInfo;
+		srvInfo.iSrvType = static_cast<enSrvType>(m_serverInfo.iSrvType);
+		srvInfo.usSrvID = m_serverInfo.iSrvID;
+		pClient->SetSrvType(srvInfo.iSrvType);
+		pClient->SetSrvID(srvInfo.usSrvID);
+		pClient->SetIsAsClinet(true);
+		pClient->SendData(&srvInfo, sizeof(sSrvInfo), MAIN_FRAME_MSG, ASS_SET_SRV_INFO, 0);
+	}
+	return true;
 }
 
 unsigned __stdcall yServerImpl::IOThreadProc(LPVOID pParam)
@@ -568,13 +805,13 @@ unsigned __stdcall yServerImpl::JobThreadProc(LPVOID pParam)
 	}
 
 	DWORD dwTransferred = 0;
-	DWORD dwCompleteKey = 0;
+	ULONG_PTR dwCompleteKey = 0;
 	LPOVERLAPPED lpOverlapped = nullptr;
 	while (true)
 	{
 		dwTransferred = 0;
 		lpOverlapped = nullptr;
-		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&dwCompleteKey, &lpOverlapped, INFINITE);
+		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, &dwCompleteKey, &lpOverlapped, INFINITE);
 		loggerIns()->debug("JobThreadProc get single! iThreadIndex={}, bIoRet={}, dwTransferred={}", iThreadIndex, bIoRet, dwTransferred);
 		if (!bIoRet || 0 == dwTransferred)
 		{

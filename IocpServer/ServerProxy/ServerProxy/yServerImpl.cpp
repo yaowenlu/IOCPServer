@@ -17,6 +17,44 @@ CSrvClientSocket::~CSrvClientSocket()
 
 }
 
+//处理普通消息
+bool CSrvClientSocket::HandleNormalMsg(void *pMsgBuf, DWORD dwBufLen)
+{
+	if (__super::HandleNormalMsg(pMsgBuf, dwBufLen))
+	{
+		return true;
+	}
+
+	NetMsgHead* pMsgHead = reinterpret_cast<NetMsgHead*>(pMsgBuf);
+	//直接返回消息给客户端（暂时没有做业务相关处理）
+	if (pMsgHead)
+	{
+		loggerIns()->debug("HandleNormalMsg m_i64Index={}, dwMsgSize={}, dwMainID={}, dwAssID={}, dwHandleCode={}, dwReserve={}",
+			GetIndex(), pMsgHead->headComm.uTotalLen, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode, pMsgHead->dwReserve);
+		//DWORD dwDataLen = dwBufLen - sizeof(NetMsgHead);
+		//BYTE *pDataBuf = (BYTE*)pMsgBuf + sizeof(NetMsgHead);
+		//SendData(pDataBuf, dwDataLen, pMsgHead->dwMainID, pMsgHead->dwAssID, pMsgHead->dwHandleCode);
+	}
+	else
+	{
+		loggerIns()->error("HandleNormalMsg m_i64Index={}, pMsgHead is null!", GetIndex());
+	}
+	return true;
+}
+
+//处理代理消息
+bool CSrvClientSocket::HandleProxyMsg(void *pMsgBuf, DWORD dwBufLen)
+{
+	if (__super::HandleProxyMsg(pMsgBuf, dwBufLen))
+	{
+		return true;
+	}
+
+	//直接转发消息
+	SendProxyMsg(pMsgBuf, dwBufLen);
+	return true;
+}
+
 /************************************************************************/
 /*                                                                      */
 /************************************************************************/
@@ -74,6 +112,126 @@ CClientSocket* CSrvSocketManager::ActiveOneConnection(SOCKET hSocket)
 	loggerIns()->info("ActiveOneConnection m_iClientNums={}, i64Index={}", m_iClientNums, i64Index);
 	LeaveCriticalSection(&m_csActiveConnectLock);
 	return pClient;
+}
+
+//处理任务
+bool CSrvSocketManager::ProcessJob()
+{
+	sJobItem* pJob = nullptr;
+	EnterCriticalSection(&m_csJobLock);
+	loggerIns()->debug("ProcessJob m_lstJobItem.size()={}", m_lstJobItem.size());
+	if (m_lstJobItem.size() > 0)
+	{
+		pJob = *(m_lstJobItem.begin());
+		m_lstJobItem.pop_front();
+	}
+	LeaveCriticalSection(&m_csJobLock);
+	if (nullptr == pJob)
+	{
+		return false;
+	}
+	loggerIns()->debug("ProcessJob i64Index={}, dwBufLen={}", pJob->i64Index, pJob->dwBufLen);
+	EnterCriticalSection(&m_csActiveConnectLock);
+	do
+	{
+		//发送给所有人
+		if (0 == pJob->i64Index)
+		{
+			std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.begin();
+			for (;iterClient != m_mapClientConnect.end();)
+			{
+				if (nullptr != iterClient->second)
+				{
+					//只会给连接到自己的客户端群发消息
+					if (NORMAL_CLIENT == iterClient->second->GetSrvType())
+					{
+						iterClient->second->HandleMsg(pJob->pJobBuff, pJob->dwBufLen);
+					}
+					++iterClient;
+				}
+				else
+				{
+					iterClient = m_mapClientConnect.erase(iterClient);
+					--m_iClientNums;
+				}
+			}
+		}
+		else
+		{
+			std::map<unsigned __int64, CClientSocket*>::iterator iterClient = m_mapClientConnect.find(pJob->i64Index);
+			//消息发起者没有断开连接
+			if (iterClient != m_mapClientConnect.end() && nullptr != iterClient->second)
+			{
+				sHeadComm* pHead = reinterpret_cast<sHeadComm*>(pJob->pJobBuff);
+				if (!pHead)
+				{
+					loggerIns()->warn("ProcessJob pHeadType invalid!");
+					break;
+				}
+				//代理消息
+				if (PROXY_HEAD == pHead->iHeadType)
+				{
+					sProxyHead* pProxyHead = reinterpret_cast<sProxyHead*>(pJob->pJobBuff);
+					if (!pProxyHead)
+					{
+						loggerIns()->warn("ProcessJob pProxyHead invalid!");
+						break;
+					}
+					//找到消息目的地
+					if (pProxyHead->iDstType != INVALID_SRV)
+					{
+						std::map<unsigned __int64, CClientSocket*>::iterator iterClt = m_mapClientConnect.begin();
+						//找到对应的服务
+						for (;iterClt != m_mapClientConnect.end();iterClt++)
+						{
+							//找到目的地服务
+							if (iterClt->second->GetSrvType() == pProxyHead->iDstType)
+							{
+								if ((pProxyHead->iTransType == trans_p2p && iterClt->second->GetSrvID() == pProxyHead->uDstID) || (pProxyHead->iTransType == trans_p2g))
+								{
+									//一般都是请求后的响应
+									if (pProxyHead->i64Index != 0)
+									{
+										//指定ID
+										if (pProxyHead->i64Index == iterClt->first)
+										{
+											iterClt->second->HandleProxyMsg(pJob->pJobBuff, pJob->dwBufLen);
+											break;
+										}
+									}
+									//一般都是发起的请求
+									else
+									{
+										//记录请求者，在应答时返回结果给请求者
+										pProxyHead->i64Index = pJob->i64Index;
+										iterClt->second->HandleProxyMsg(pJob->pJobBuff, pJob->dwBufLen);
+										if (pProxyHead->iTransType == trans_p2p)
+										{
+											break;
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				//正常消息
+				else if (MSG_HEAD == pHead->iHeadType)
+				{
+					iterClient->second->HandleNormalMsg(pJob->pJobBuff, pJob->dwBufLen);
+				}
+			}
+			else
+			{
+				loggerIns()->warn("ProcessJob i64Index={} not exists!", pJob->i64Index);
+			}
+		}
+	} while (false);
+
+	LeaveCriticalSection(&m_csActiveConnectLock);
+	//释放Job内存
+	m_jobManager.ReleaseJobItem(pJob);
+	return true;
 }
 
 yServerImpl::yServerImpl()
@@ -568,13 +726,13 @@ unsigned __stdcall yServerImpl::JobThreadProc(LPVOID pParam)
 	}
 
 	DWORD dwTransferred = 0;
-	DWORD dwCompleteKey = 0;
+	ULONG_PTR dwCompleteKey = 0;
 	LPOVERLAPPED lpOverlapped = nullptr;
 	while (true)
 	{
 		dwTransferred = 0;
 		lpOverlapped = nullptr;
-		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, (PULONG_PTR)&dwCompleteKey, &lpOverlapped, INFINITE);
+		BOOL bIoRet = ::GetQueuedCompletionStatus(hCompletionPort, &dwTransferred, &dwCompleteKey, &lpOverlapped, INFINITE);
 		loggerIns()->debug("JobThreadProc get single! iThreadIndex={}, bIoRet={}, dwTransferred={}", iThreadIndex, bIoRet, dwTransferred);
 		if (!bIoRet || 0 == dwTransferred)
 		{

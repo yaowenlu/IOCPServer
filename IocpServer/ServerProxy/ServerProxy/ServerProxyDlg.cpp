@@ -143,7 +143,7 @@ BOOL CServerProxyDlg::OnInitDialog()
 	dwStyle |= LVS_EX_FULLROWSELECT;
 	dwStyle |= LVS_EX_GRIDLINES;
 	m_lstLogs.SetExtendedStyle(dwStyle);
-	m_lstLogs.InsertColumn(0, _T("日志信息"), LVCFMT_LEFT, 750);
+	m_lstLogs.InsertColumn(0, _T("日志信息"), LVCFMT_LEFT, 800);
 	ReadCfg();
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }

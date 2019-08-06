@@ -41,6 +41,7 @@ void CClientSocket::InitData()
 	m_bSending = false;
 	m_iSrvType = INVALID_SRV;
 	m_usSrvID = -1;
+	m_bIsAsClient = false;
 	LeaveCriticalSection(&m_csStateLock);
 	LeaveCriticalSection(&m_csRecvLock);
 	LeaveCriticalSection(&m_csSendLock);
@@ -219,8 +220,8 @@ int CClientSocket::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD 
 
 		//发送数据
 		NetMsgHead* pNetHead=(NetMsgHead*)(m_szSendBuf + m_dwSendBuffLen);
-		pNetHead->dwMsgSize = uSendSize;
-		pNetHead->iHeadType = MSG_HEAD;
+		pNetHead->headComm.uTotalLen = uSendSize;
+		pNetHead->headComm.iHeadType = MSG_HEAD;
 		pNetHead->dwMainID = dwMainID;
 		pNetHead->dwAssID = dwAssID;
 		pNetHead->dwHandleCode = dwHandleCode;		
@@ -306,34 +307,114 @@ bool CClientSocket::OnSendCompleted(DWORD dwSendCount)
 bool CClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 {
 	//处理心跳消息
-	if (nullptr != pMsgBuf && sizeof(NetMsgHead) == dwBufLen)
+	if (nullptr != pMsgBuf && dwBufLen > sizeof(sHeadComm))
 	{
-		NetMsgHead *pMsgHead = reinterpret_cast<NetMsgHead*>(pMsgBuf);
-		//非心跳检测
-		if (ASS_SC_KEEP_ALIVE != pMsgHead->dwAssID || MAIN_KEEP_ALIVE != pMsgHead->dwMainID)
+		sHeadComm *pHeadComm = reinterpret_cast<sHeadComm*>(pMsgBuf);
+		if (!pHeadComm)
 		{
-			InterlockedExchange(&m_dwTimeOutCount, 0);
-			//更新服务信息
-			if (ASS_SET_SRV_INFO == pMsgHead->dwAssID || MAIN_FRAME_MSG != pMsgHead->dwMainID)
-			{
-				sSrvInfo* pSrvInfo = reinterpret_cast<sSrvInfo*>(pMsgHead+1);
-				if (nullptr != pSrvInfo)
-				{
-					m_iSrvType = pSrvInfo->iSrvType;
-					m_usSrvID = pSrvInfo->usSrvID;
-				}
-			}
+			return true;
+		}
+		if (MSG_HEAD == pHeadComm->iHeadType)
+		{
+			return HandleNormalMsg(pMsgBuf, dwBufLen);
+		}
+		else if(PROXY_HEAD == pHeadComm->iHeadType)
+		{
+			return HandleProxyMsg(pMsgBuf, dwBufLen);
 		}
 		else
 		{
-			InterlockedIncrement(&m_dwTimeOutCount);
-			if (m_dwTimeOutCount > MAX_CONNECT_TIME_OUT_COUNT && m_pManager)
+			loggerIns()->error("HandleMsg fail! iHeadType={}", pHeadComm->iHeadType);
+		}
+	}
+	else
+	{
+		loggerIns()->error("HandleMsg fail! pMsgBuf={}, dwBufLen={}", pMsgBuf, dwBufLen);
+	}
+
+	return true;
+}
+
+//处理普通消息
+bool CClientSocket::HandleNormalMsg(void *pMsgBuf, DWORD dwBufLen)
+{
+	if (dwBufLen < sizeof(NetMsgHead))
+	{
+		loggerIns()->error("HandleNormalMsg fail! dwBufLen={}", dwBufLen);
+		return true;
+	}
+	NetMsgHead *pMsgHead = reinterpret_cast<NetMsgHead*>(pMsgBuf);
+	if (!pMsgHead)
+	{
+		loggerIns()->error("HandleNormalMsg pMsgHead is null!");
+		return true;
+	}
+
+	//心跳检测
+	if (MAIN_KEEP_ALIVE == pMsgHead->dwMainID)
+	{
+		//这个消息可能是自己要发出去的，也可能是收到的代理服务器的心跳检测
+		if (ASS_SC_KEEP_ALIVE == pMsgHead->dwAssID)
+		{
+			//自己是作为客户端说明是收到的心跳检测
+			if (GetIsAsClinet())
 			{
-				loggerIns()->warn("before close m_i64Index={}, m_dwTimeOutCount={}", GetIndex(), m_dwTimeOutCount);
-				m_pManager->CloseOneConnection(this);
-				return true;
+				//心跳直接回应
+				SendData(nullptr, 0, MAIN_KEEP_ALIVE, ASS_CS_KEEP_ALIVE, pMsgHead->dwHandleCode);
+			}
+			else
+			{
+				//发送心跳包给所有客户端
+				InterlockedIncrement(&m_dwTimeOutCount);
+				if (m_dwTimeOutCount > MAX_CONNECT_TIME_OUT_COUNT && m_pManager)
+				{
+					loggerIns()->warn("client is not alive already, m_i64Index={}, m_dwTimeOutCount={}", GetIndex(), m_dwTimeOutCount);
+					m_pManager->CloseOneConnection(this);
+					return true;
+				}
+				//发送心跳包
+				SendData(nullptr, 0, MAIN_KEEP_ALIVE, ASS_SC_KEEP_ALIVE, 0);
 			}
 		}
+		//收到心跳消息
+		else if (ASS_CS_KEEP_ALIVE == pMsgHead->dwAssID)
+		{
+			InterlockedExchange(&m_dwTimeOutCount, 0);
+		}
+		return true;
+	}
+	//非心跳检测
+	else
+	{
+		InterlockedExchange(&m_dwTimeOutCount, 0);
+		//更新服务信息
+		if (ASS_SET_SRV_INFO == pMsgHead->dwAssID && MAIN_FRAME_MSG == pMsgHead->dwMainID)
+		{
+			sSrvInfo* pSrvInfo = reinterpret_cast<sSrvInfo*>(pMsgHead + 1);
+			if (nullptr != pSrvInfo)
+			{
+				SetSrvType(pSrvInfo->iSrvType);
+				SetSrvID(pSrvInfo->usSrvID);
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
+//处理代理消息
+bool CClientSocket::HandleProxyMsg(void *pMsgBuf, DWORD dwBufLen)
+{
+	if (dwBufLen < sizeof(sProxyHead) + sizeof(NetMsgHead))
+	{
+		loggerIns()->error("HandleProxyMsg fail! dwBufLen={}", dwBufLen);
+		return true;
+	}
+	sProxyHead *pHead = reinterpret_cast<sProxyHead*>(pMsgBuf);
+	if (!pHead)
+	{
+		loggerIns()->error("HandleProxyMsg pHead is null!");
+		return true;
 	}
 
 	return false;
@@ -355,6 +436,40 @@ int CClientSocket::SendProxyMsg(void *pMsgBuf, DWORD dwBufLen)
 	//发送数据
 	CopyMemory(m_szSendBuf + m_dwSendBuffLen, pMsgBuf, dwBufLen);
 	m_dwSendBuffLen += dwBufLen;
+	LeaveCriticalSection(&m_csSendLock);
+	OnSendBegin();
+	return 0;
+}
+
+//发送代理数据
+int CClientSocket::SendProxyMsg(sProxyHead proxyHead, void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dwAssID, DWORD dwHandleCode)
+{
+	//锁定数据
+	UINT uSendSize = sizeof(sProxyHead) + sizeof(NetMsgHead) + dwDataLen;
+	EnterCriticalSection(&m_csSendLock);
+	//缓冲区满了
+	if (uSendSize > (SED_SIZE - m_dwSendBuffLen))
+	{
+		loggerIns()->error("SendProxyMsg uSendSize={} is bigger than left buflen={}, discard SendData m_i64Index={}, i64SrvIndex={}, dwMainID={}, dwAssID={}, dwHandleCode{}",
+			uSendSize, SED_SIZE - m_dwSendBuffLen, m_i64Index, GetSrvIndex(), dwMainID, dwAssID, dwHandleCode);
+		LeaveCriticalSection(&m_csSendLock);
+		return -1;
+	}
+
+	//发送数据
+	sProxyHead* pHead = (sProxyHead*)(m_szSendBuf + m_dwSendBuffLen);
+	*pHead = proxyHead;
+	pHead->headComm.uTotalLen = uSendSize;
+	NetMsgHead* pMsgHead = (NetMsgHead*)(m_szSendBuf + m_dwSendBuffLen + sizeof(sProxyHead));
+	pMsgHead->headComm.uTotalLen = uSendSize - sizeof(sProxyHead);
+	pMsgHead->headComm.iHeadType = MSG_HEAD;
+	pMsgHead->dwMainID = dwMainID;
+	pMsgHead->dwAssID = dwAssID;
+	pMsgHead->dwHandleCode = dwHandleCode;
+	pMsgHead->dwReserve = 0;
+	if(pData)
+		CopyMemory(pMsgHead + 1, pData, dwDataLen);
+	m_dwSendBuffLen += uSendSize;
 	LeaveCriticalSection(&m_csSendLock);
 	OnSendBegin();
 	return 0;

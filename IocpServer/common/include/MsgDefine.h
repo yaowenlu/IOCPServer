@@ -10,8 +10,7 @@
 ///网络数据包结构头
 struct NetMsgHead
 {
-	DWORD	dwMsgSize;		//数据包大小
-	enHeadType iHeadType;	//消息头类型
+	sHeadComm headComm;		//通用头
 	DWORD	dwMainID;		//消息主ID
 	DWORD	dwAssID;		//消息辅ID
 	DWORD	dwHandleCode;	//消息处理代码
