@@ -268,7 +268,7 @@ void CGameServerDlg::ReadCfg()
 	strTmp.Format(_T("%d"), m_sServerInfo.iJobThreadNum);
 	m_edJobThreadNum.SetWindowText(strTmp);
 
-	m_sServerInfo.iSrvType = GetPrivateProfileIntA(strKey.c_str(), "SrvType", 1, strCfgFileName.c_str());
+	m_sServerInfo.iSrvType = GetPrivateProfileIntA(strKey.c_str(), "SrvType", GAME_SRV, strCfgFileName.c_str());
 	strTmp.Format(_T("%d"), m_sServerInfo.iSrvType);
 	m_edSrvType.SetWindowText(strTmp);
 
@@ -279,7 +279,7 @@ void CGameServerDlg::ReadCfg()
 	m_sProxyInfo.bUseProxy = GetPrivateProfileIntA(strKey.c_str(), "UseProxy", 1, strCfgFileName.c_str());
 	m_chUseProxy.SetCheck(m_sProxyInfo.bUseProxy);
 
-	char szIp[32] = { 0 };
+	char szIp[MAX_IP_LEN] = { 0 };
 	GetPrivateProfileStringA(strKey.c_str(), "ProxyIp", "127.0.0.1", szIp, sizeof(szIp), strCfgFileName.c_str());
 	SetWindowTextA(m_edProxyIp, szIp);
 	memcpy(m_sProxyInfo.szProxyIp, szIp, sizeof(szIp));

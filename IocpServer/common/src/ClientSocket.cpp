@@ -18,6 +18,9 @@ CClientSocket::CClientSocket()
 CClientSocket::~CClientSocket()
 {
 	CloseSocket();
+	EnterCriticalSection(&m_csSendLock);
+	ReleaseSendBuf();
+	LeaveCriticalSection(&m_csSendLock);
 	DeleteCriticalSection(&m_csRecvLock);
 	DeleteCriticalSection(&m_csSendLock);
 	DeleteCriticalSection(&m_csStateLock);
@@ -30,7 +33,6 @@ void CClientSocket::InitData()
 	EnterCriticalSection(&m_csStateLock);
 	m_hSocket = INVALID_SOCKET;
 	m_i64Index = 0;
-	m_lBeginTime=0;
 	m_dwSendBuffLen=0;
 	m_dwRecvBuffLen=0;
 	memset(&m_SendOverData,0,sizeof(m_SendOverData));
@@ -42,9 +44,26 @@ void CClientSocket::InitData()
 	m_iSrvType = INVALID_SRV;
 	m_usSrvID = -1;
 	m_bIsAsClient = false;
+	ReleaseSendBuf();
 	LeaveCriticalSection(&m_csStateLock);
 	LeaveCriticalSection(&m_csRecvLock);
 	LeaveCriticalSection(&m_csSendLock);
+}
+
+//释放发送内存
+void CClientSocket::ReleaseSendBuf()
+{
+	std::list<sSendBuff>::iterator iterBuf = m_lstSendBuff.begin();
+	for (;iterBuf != m_lstSendBuff.end();iterBuf++)
+	{
+		if (nullptr != iterBuf->pBuff)
+		{
+			delete[] iterBuf->pBuff;
+			iterBuf->pBuff = nullptr;
+			iterBuf->usBuffLen = 0;
+		}
+	}
+	m_lstSendBuff.clear();
 }
 
 //关闭连接
@@ -212,14 +231,27 @@ int CClientSocket::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD 
 		//缓冲区满了
 		if (uSendSize > (SED_SIZE - m_dwSendBuffLen))
 		{
-			loggerIns()->error("SendData uSendSize={} is bigger than left buflen={}, discard SendData m_i64Index={}, i64SrvIndex={}, dwMainID={}, dwAssID={}, dwHandleCode{}", 
-				uSendSize, SED_SIZE - m_dwSendBuffLen, m_i64Index, GetSrvIndex(), dwMainID, dwAssID, dwHandleCode);
+			loggerIns()->warn("{} uSendSize={} is bigger than left buflen={}, m_lstSendBuff.size={}, m_i64Index={}, i64SrvIndex={}, dwMainID={}, dwAssID={}, dwHandleCode{}",
+				__FUNCTION__, uSendSize, SED_SIZE - m_dwSendBuffLen, m_lstSendBuff.size(), m_i64Index, GetSrvIndex(), dwMainID, dwAssID, dwHandleCode);
+			NetMsgHead msgHead;
+			msgHead.dwMainID = dwMainID;
+			msgHead.dwAssID = dwAssID;
+			msgHead.dwHandleCode = dwHandleCode;
+			if (!AddSendBuf(msgHead, pData, dwDataLen))
+			{
+				loggerIns()->error("{} AddSendBuf fail!", __FUNCTION__);
+			}			
 			LeaveCriticalSection(&m_csSendLock);
 			return -1;
 		}
 
 		//发送数据
-		NetMsgHead* pNetHead=(NetMsgHead*)(m_szSendBuf + m_dwSendBuffLen);
+		NetMsgHead* pNetHead=reinterpret_cast<NetMsgHead*>(m_szSendBuf + m_dwSendBuffLen);
+		if (!pNetHead)
+		{
+			loggerIns()->error("{} pNetHead is null!", __FUNCTION__);
+			return -1;
+		}
 		pNetHead->headComm.uTotalLen = uSendSize;
 		pNetHead->headComm.iHeadType = MSG_HEAD;
 		pNetHead->dwMainID = dwMainID;
@@ -246,24 +278,38 @@ bool CClientSocket::OnSendBegin()
 	EnterCriticalSection(&m_csSendLock);
 	EnterCriticalSection(&m_csStateLock);
 	loggerIns()->debug("OnSendBegin m_i64Index={}, i64SrvIndex={}, m_bSending={}, m_dwSendBuffLen={}", m_i64Index, GetSrvIndex(), m_bSending, m_dwSendBuffLen);
-	if (!m_bSending && m_dwSendBuffLen > 0)
+	if (!m_bSending)
 	{
-		m_bSending = true;
-		DWORD dwSendCount = 0;
-		m_SendOverData.i64Index = m_i64Index;
-		m_SendOverData.WSABuffer.buf = m_szSendBuf;
-		m_SendOverData.WSABuffer.len = m_dwSendBuffLen;
-		m_SendOverData.uOperationType = SOCKET_SND_FINISH;
-		loggerIns()->debug("send m_i64Index={}, i64SrvIndex={}, OverLapped={}", m_i64Index, GetSrvIndex(), (void *)(&m_SendOverData.OverLapped));
-		int iRet = WSASend(m_hSocket,&m_SendOverData.WSABuffer,1,&dwSendCount,0,&m_SendOverData.OverLapped,NULL);
-		if (SOCKET_ERROR == iRet && WSAGetLastError() != WSA_IO_PENDING)
+		//缓冲区还有数据要发送
+		if (m_dwSendBuffLen <= 0 && m_lstSendBuff.size() > 0)
 		{
-			loggerIns()->error("OnSendBegin error={}, m_i64Index={}, i64SrvIndex={}", WSAGetLastError(), m_i64Index, GetSrvIndex());
-			m_pManager->CloseOneConnection(this);
-			m_bSending = false;
-			LeaveCriticalSection(&m_csStateLock);
-			LeaveCriticalSection(&m_csSendLock);
-			return false;
+			loggerIns()->info("{} m_lstSendBuff.size={}", __FUNCTION__, m_lstSendBuff.size());
+			std::list<sSendBuff>::iterator iterBuf = m_lstSendBuff.begin();
+			m_dwSendBuffLen = iterBuf->usBuffLen;
+			memcpy(m_szSendBuf, iterBuf->pBuff, m_dwSendBuffLen);
+			delete[] iterBuf->pBuff;
+			m_lstSendBuff.pop_front();
+		}
+		//有数据要发送
+		if (m_dwSendBuffLen > 0)
+		{
+			m_bSending = true;
+			DWORD dwSendCount = 0;
+			m_SendOverData.i64Index = m_i64Index;
+			m_SendOverData.WSABuffer.buf = m_szSendBuf;
+			m_SendOverData.WSABuffer.len = m_dwSendBuffLen;
+			m_SendOverData.uOperationType = SOCKET_SND_FINISH;
+			loggerIns()->debug("send m_i64Index={}, i64SrvIndex={}, OverLapped={}", m_i64Index, GetSrvIndex(), (void *)(&m_SendOverData.OverLapped));
+			int iRet = WSASend(m_hSocket, &m_SendOverData.WSABuffer, 1, &dwSendCount, 0, &m_SendOverData.OverLapped, NULL);
+			if (SOCKET_ERROR == iRet && WSAGetLastError() != WSA_IO_PENDING)
+			{
+				loggerIns()->error("OnSendBegin error={}, m_i64Index={}, i64SrvIndex={}", WSAGetLastError(), m_i64Index, GetSrvIndex());
+				m_pManager->CloseOneConnection(this);
+				m_bSending = false;
+				LeaveCriticalSection(&m_csStateLock);
+				LeaveCriticalSection(&m_csSendLock);
+				return false;
+			}
 		}
 	}
 	LeaveCriticalSection(&m_csStateLock);
@@ -290,7 +336,7 @@ bool CClientSocket::OnSendCompleted(DWORD dwSendCount)
 		}
 	}
 	LeaveCriticalSection(&m_csStateLock);
-	if(m_dwSendBuffLen > 0)
+	if(m_dwSendBuffLen > 0 || m_lstSendBuff.size() > 0)
 	{
 		LeaveCriticalSection(&m_csSendLock);
 		//继续发送数据
@@ -427,8 +473,12 @@ int CClientSocket::SendProxyMsg(void *pMsgBuf, DWORD dwBufLen)
 	//缓冲区满了
 	if (dwBufLen > (SED_SIZE - m_dwSendBuffLen))
 	{
-		loggerIns()->error("SendProxyMsg dwBufLen={} is bigger than left buflen={}, discard SendProxyMsg m_i64Index={}, i64SrvIndex={}",
-			dwBufLen, SED_SIZE - m_dwSendBuffLen, m_i64Index, GetSrvIndex());
+		loggerIns()->warn("{} dwBufLen={} is bigger than left buflen={}, m_lstSendBuff.size={}, m_i64Index={}, i64SrvIndex={}",
+			__FUNCTION__, dwBufLen, SED_SIZE - m_dwSendBuffLen, m_lstSendBuff.size(), m_i64Index, GetSrvIndex());
+		if (!AddSendBuf(pMsgBuf, dwBufLen))
+		{
+			loggerIns()->error("{} AddSendBuf fail!", __FUNCTION__);
+		}
 		LeaveCriticalSection(&m_csSendLock);
 		return -1;
 	}
@@ -450,17 +500,35 @@ int CClientSocket::SendProxyMsg(sProxyHead proxyHead, void* pData, DWORD dwDataL
 	//缓冲区满了
 	if (uSendSize > (SED_SIZE - m_dwSendBuffLen))
 	{
-		loggerIns()->error("SendProxyMsg uSendSize={} is bigger than left buflen={}, discard SendData m_i64Index={}, i64SrvIndex={}, dwMainID={}, dwAssID={}, dwHandleCode{}",
-			uSendSize, SED_SIZE - m_dwSendBuffLen, m_i64Index, GetSrvIndex(), dwMainID, dwAssID, dwHandleCode);
+		loggerIns()->warn("{} uSendSize={} is bigger than left buflen={},  m_i64Index={}, m_lstSendBuff.size={}, i64SrvIndex={}, dwMainID={}, dwAssID={}, dwHandleCode{}",
+			__FUNCTION__, uSendSize, SED_SIZE - m_dwSendBuffLen, m_i64Index, m_lstSendBuff.size(), GetSrvIndex(), dwMainID, dwAssID, dwHandleCode);
+		NetMsgHead msgHead;
+		msgHead.dwMainID = dwMainID;
+		msgHead.dwAssID = dwAssID;
+		msgHead.dwHandleCode = dwHandleCode;
+		if (!AddSendBuf(proxyHead, msgHead, pData, dwDataLen))
+		{
+			loggerIns()->error("{} AddSendBuf fail!", __FUNCTION__);
+		}
 		LeaveCriticalSection(&m_csSendLock);
 		return -1;
 	}
 
 	//发送数据
-	sProxyHead* pHead = (sProxyHead*)(m_szSendBuf + m_dwSendBuffLen);
+	sProxyHead* pHead = reinterpret_cast<sProxyHead*>(m_szSendBuf + m_dwSendBuffLen);
+	if (!pHead)
+	{
+		loggerIns()->error("{} pHead is null!", __FUNCTION__);
+		return -1;
+	}
 	*pHead = proxyHead;
 	pHead->headComm.uTotalLen = uSendSize;
-	NetMsgHead* pMsgHead = (NetMsgHead*)(m_szSendBuf + m_dwSendBuffLen + sizeof(sProxyHead));
+	NetMsgHead* pMsgHead = reinterpret_cast<NetMsgHead*>(m_szSendBuf + m_dwSendBuffLen + sizeof(sProxyHead));
+	if (!pMsgHead)
+	{
+		loggerIns()->error("{} pMsgHead is null!", __FUNCTION__);
+		return -1;
+	}
 	pMsgHead->headComm.uTotalLen = uSendSize - sizeof(sProxyHead);
 	pMsgHead->headComm.iHeadType = MSG_HEAD;
 	pMsgHead->dwMainID = dwMainID;
@@ -473,4 +541,104 @@ int CClientSocket::SendProxyMsg(sProxyHead proxyHead, void* pData, DWORD dwDataL
 	LeaveCriticalSection(&m_csSendLock);
 	OnSendBegin();
 	return 0;
+}
+
+//增加发送缓存
+bool CClientSocket::AddSendBuf(sProxyHead proxyHead, NetMsgHead msgHead, void* pBuff, DWORD dwLen)
+{
+	if (m_lstSendBuff.size() >= MAX_SEND_BUFF_COUNT)
+	{
+		loggerIns()->error("{} m_lstSendBuff.size={} too large!", __FUNCTION__, m_lstSendBuff.size());
+		return false;
+	}
+	USHORT uTotalSize = sizeof(sProxyHead) + sizeof(NetMsgHead) + dwLen;
+	sSendBuff tmpBuff;
+	tmpBuff.usBuffLen = uTotalSize;
+	tmpBuff.pBuff = new char[uTotalSize];
+	if (!tmpBuff.pBuff)
+	{
+		loggerIns()->error("{} new memory fail! uTotalSize={}", __FUNCTION__, uTotalSize);
+		return false;
+	}
+	sProxyHead* pTmpHead = reinterpret_cast<sProxyHead*>(tmpBuff.pBuff);
+	if (!pTmpHead)
+	{
+		delete[] tmpBuff.pBuff;
+		loggerIns()->error("{} pTmpHead is null!", __FUNCTION__);
+		return false;
+	}
+	*pTmpHead = proxyHead;
+	pTmpHead->headComm.uTotalLen = uTotalSize;
+	NetMsgHead* pTmpHead2 = reinterpret_cast<NetMsgHead*>(tmpBuff.pBuff + sizeof(sProxyHead));
+	if (!pTmpHead2)
+	{
+		delete[] tmpBuff.pBuff;
+		loggerIns()->error("{} pTmpHead2 is null!", __FUNCTION__);
+		return false;
+	}
+	*pTmpHead2 = msgHead;
+	pTmpHead2->headComm.uTotalLen = uTotalSize - sizeof(sProxyHead);
+	if (pBuff)
+		CopyMemory(pTmpHead2 + 1, pBuff, dwLen);
+	m_lstSendBuff.push_back(tmpBuff);
+	return true;
+}
+
+//增加发送缓存
+bool CClientSocket::AddSendBuf(NetMsgHead msgHead, void* pBuff, DWORD dwLen)
+{
+	if (m_lstSendBuff.size() >= MAX_SEND_BUFF_COUNT)
+	{
+		loggerIns()->error("{} m_lstSendBuff.size={} too large!", __FUNCTION__, m_lstSendBuff.size());
+		return false;
+	}
+	USHORT uTotalSize = sizeof(NetMsgHead) + dwLen;
+	sSendBuff tmpBuff;
+	tmpBuff.usBuffLen = uTotalSize;
+	tmpBuff.pBuff = new char[uTotalSize];
+	if (!tmpBuff.pBuff)
+	{
+		loggerIns()->error("{} new memory fail! uTotalSize={}", __FUNCTION__, uTotalSize);
+		return false;
+	}
+	NetMsgHead* pTmpHead = reinterpret_cast<NetMsgHead*>(tmpBuff.pBuff);
+	if (!pTmpHead)
+	{
+		delete[] tmpBuff.pBuff;
+		loggerIns()->error("{} pTmpHead is null!", __FUNCTION__);
+		return false;
+	}
+	*pTmpHead = msgHead;
+	pTmpHead->headComm.uTotalLen = uTotalSize;
+	if (pBuff)
+		CopyMemory(pTmpHead + 1, pBuff, dwLen);
+	m_lstSendBuff.push_back(tmpBuff);
+	return true;
+}
+
+//增加发送缓存
+bool CClientSocket::AddSendBuf(void* pBuff, DWORD dwLen)
+{
+	if (m_lstSendBuff.size() >= MAX_SEND_BUFF_COUNT)
+	{
+		loggerIns()->error("{} m_lstSendBuff.size={} too large!", __FUNCTION__, m_lstSendBuff.size());
+		return false;
+	}
+	if (!pBuff || 0 == dwLen)
+	{
+		return true;
+	}
+	USHORT uTotalSize = dwLen;
+	sSendBuff tmpBuff;
+	tmpBuff.usBuffLen = uTotalSize;
+	tmpBuff.pBuff = new char[uTotalSize];
+	if (!tmpBuff.pBuff)
+	{
+		loggerIns()->error("{} new memory fail! uTotalSize={}", __FUNCTION__, uTotalSize);
+		return false;
+	}
+	if (pBuff)
+		CopyMemory(tmpBuff.pBuff, pBuff, dwLen);
+	m_lstSendBuff.push_back(tmpBuff);
+	return true;
 }

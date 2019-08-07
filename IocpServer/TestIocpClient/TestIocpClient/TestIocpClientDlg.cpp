@@ -258,7 +258,7 @@ void CTestIocpClientDlg::ReadCfg()
 	m_sConnectInfo.bUseProxy = GetPrivateProfileIntA(strKey.c_str(), "UseProxy", 1, strCfgFileName.c_str());
 	m_chUseProxy.SetCheck(m_sConnectInfo.bUseProxy);
 
-	char szIp[32] = { 0 };
+	char szIp[MAX_IP_LEN] = { 0 };
 	GetPrivateProfileStringA(strKey.c_str(), "ServerIp", "127.0.0.1", szIp, sizeof(szIp), strCfgFileName.c_str());
 	SetWindowTextA(m_edServerIp, szIp);
 	memcpy(m_sConnectInfo.szServerIp, szIp, sizeof(szIp));

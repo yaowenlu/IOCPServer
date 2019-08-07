@@ -21,6 +21,7 @@ struct sProxyHead
 	sProxyHead()
 	{
 		memset(this, 0, sizeof(*this));
+		headComm.iHeadType = PROXY_HEAD;
 	}
 };
 

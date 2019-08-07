@@ -259,7 +259,7 @@ void CServerProxyDlg::ReadCfg()
 	strTmp.Format(_T("%d"), m_sServerInfo.iJobThreadNum);
 	m_edJobThreadNum.SetWindowText(strTmp);
 
-	m_sServerInfo.iSrvType = GetPrivateProfileIntA(strKey.c_str(), "SrvType", 1, strCfgFileName.c_str());
+	m_sServerInfo.iSrvType = GetPrivateProfileIntA(strKey.c_str(), "SrvType", PROXY_SRV, strCfgFileName.c_str());
 	strTmp.Format(_T("%d"), m_sServerInfo.iSrvType);
 	m_edSrvType.SetWindowText(strTmp);
 

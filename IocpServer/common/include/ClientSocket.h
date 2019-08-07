@@ -14,6 +14,13 @@
 #define RCV_SIZE				40960			//接收缓冲区大小
 #define TIME_OUT				3000			//超时时间
 #define MAX_SEND_SIZE			4000			//单条消息最多发送的数据大小
+#define MAX_SEND_BUFF_COUNT		10000			//最多缓存多少条待发送数据
+
+struct sSendBuff
+{
+	char* pBuff;
+	USHORT usBuffLen;
+};
 
 class CSocketManager;
 //每个客户端连接信息
@@ -25,6 +32,18 @@ public:
 
 	//初始化数据
 	virtual void InitData();
+
+	//释放发送内存
+	void ReleaseSendBuf();
+
+	//增加发送缓存
+	bool AddSendBuf(sProxyHead proxyHead, NetMsgHead msgHead, void* pBuff, DWORD dwLen);
+
+	//增加发送缓存
+	bool AddSendBuf(NetMsgHead msgHead, void* pBuff, DWORD dwLen);
+
+	//增加发送缓存
+	bool AddSendBuf(void* pBuff, DWORD dwLen);
 
 	//关闭连接
 	bool CloseSocket(bool bGraceful = false);
@@ -95,7 +114,7 @@ private:
 
 	char			m_szSendBuf[SED_SIZE];	//发送数据缓冲区
 	char			m_szRecvBuf[RCV_SIZE];	//数据接收缓冲区
-	long int		m_lBeginTime;			//连接时间
+	std::list<sSendBuff> m_lstSendBuff;		//待发送缓冲数据
 
 	DWORD			m_dwTimeOutCount;	//超时次数
 	bool			m_bSending;			//数据是否正在发送

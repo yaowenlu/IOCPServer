@@ -15,6 +15,11 @@ struct NetMsgHead
 	DWORD	dwAssID;		//消息辅ID
 	DWORD	dwHandleCode;	//消息处理代码
 	DWORD	dwReserve;		//保留字段
+	NetMsgHead()
+	{
+		memset(this, 0, sizeof(*this));
+		headComm.iHeadType = MSG_HEAD;
+	}
 };
 
 #define MAIN_FRAME_MSG		150
