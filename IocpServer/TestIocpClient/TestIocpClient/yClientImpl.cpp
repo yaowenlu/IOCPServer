@@ -354,7 +354,6 @@ int yClientImpl::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD dw
 int yClientImpl::DisConnectServer()
 {
 	loggerIns()->debug("DisConnectServer!");
-	loggerIns()->flush();
 	m_bWorking = false;
 	//关闭Io完成端口
 	if (NULL != m_hIoCompletionPort)
@@ -748,7 +747,6 @@ unsigned __stdcall yClientImpl::JobThreadProc(LPVOID pParam)
 		if (!bIoRet || 0 == dwTransferred)
 		{
 			loggerIns()->info("JobThreadProc exit! iThreadIndex={}, bIoRet={}, dwTransferred={}", iThreadIndex, bIoRet, dwTransferred);
-			loggerIns()->flush();
 			//主动退出的
 			if (0 == dwTransferred)
 			{
