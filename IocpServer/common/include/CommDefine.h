@@ -2,11 +2,18 @@
 #ifndef COMMON_DEFINE_H
 #define COMMON_DEFINE_H
 
+#include <string>
+
 /**************************************
 通用定义
 **************************************/
 
+//ip长度限制
 #define MAX_IP_LEN 32
+
+//消息是否进行加密
+const bool g_encrypt = true;
+const std::string g_aes_key = "oii923489jsdf78w2uhiws89tw9834";
 
 //头类型
 enum enHeadType
