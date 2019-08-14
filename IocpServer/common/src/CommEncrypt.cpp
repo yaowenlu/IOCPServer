@@ -34,17 +34,22 @@ CYEncrypt::~CYEncrypt()
 /*
 函数功能：Aes加/解密
 传入参数：
-	strData:需要加/解密的数据
+	pData:需要加/解密的数据
+	uLen:加/解密的数据长度
+	pOutData:存放加/解密后的数据
+	uOutLen:加/解密后的数据长度
 	strKey:加/解密的秘钥
 	bEncrypt:true-加密，false-解密
 返回：
-	加/解密后的数据
+	是否成功
 */
-string CYEncrypt::AesEncrypt(char* pData, unsigned int uLen, string strKey, bool bEncrypt)
+bool CYEncrypt::AesEncrypt(const char* pData, const unsigned int uLen, char* &pOutData, unsigned int &uOutLen, string strKey, bool bEncrypt)
 {
+	pOutData = nullptr;
+	uOutLen = 0;
 	if (!pData || 0 == uLen)
 	{
-		return "";
+		return false;
 	}
 	DealWithAesKey(strKey);
 	AES_KEY aesKey;
@@ -53,14 +58,14 @@ string CYEncrypt::AesEncrypt(char* pData, unsigned int uLen, string strKey, bool
 	{
 		if (AES_set_encrypt_key((unsigned char*)strKey.c_str(), aes_key_len * 8, &aesKey) < 0)
 		{
-			return "";
+			return false;
 		}
 	}
 	else
 	{
 		if (AES_set_decrypt_key((unsigned char*)strKey.c_str(), aes_key_len * 8, &aesKey) < 0)
 		{
-			return "";
+			return false;
 		}
 	}
 	//加密的初始化向量
@@ -72,26 +77,24 @@ string CYEncrypt::AesEncrypt(char* pData, unsigned int uLen, string strKey, bool
 	}
 
 	//数据是AES_BLOCK_SIZE的整数倍
-	unsigned int uOutLen = uLen;
+	uOutLen = uLen;
 	int iMod = uOutLen%AES_BLOCK_SIZE;
 	if (0 != iMod)
 	{
 		uOutLen = uLen - iMod + AES_BLOCK_SIZE;
 	}
-	char* pSzOut = new char[uOutLen + 1];
-	memset(pSzOut, 0, sizeof(char)*(uOutLen + 1));
+	pOutData = new char[uOutLen];
+	memset(pOutData, 0, sizeof(char)*(uOutLen));
 	if (bEncrypt)
 	{
-		AES_cbc_encrypt((unsigned char*)pData, (unsigned char*)pSzOut, uLen, &aesKey, iv, AES_ENCRYPT);
+		AES_cbc_encrypt((unsigned char*)pData, (unsigned char*)pOutData, uLen, &aesKey, iv, AES_ENCRYPT);
 	}
 	else
 	{
-		AES_cbc_encrypt((unsigned char*)pData, (unsigned char*)pSzOut, uLen, &aesKey, iv, AES_DECRYPT);
+		AES_cbc_encrypt((unsigned char*)pData, (unsigned char*)pOutData, uLen, &aesKey, iv, AES_DECRYPT);
 	}
 	
-	string strOut(pSzOut);
-	delete[] pSzOut;
-	return strOut;
+	return true;
 }
 
 void CYEncrypt::DealWithAesKey(string &strKey)
@@ -99,11 +102,11 @@ void CYEncrypt::DealWithAesKey(string &strKey)
 	//key长度判断
 	if (strKey.length() != aes_key_len)
 	{
-		int iLen = strKey.length();
+		unsigned int uLen = static_cast<unsigned int>(strKey.length());
 		//补足长度
-		if (iLen < aes_key_len)
+		if (uLen < aes_key_len)
 		{
-			int iDiff = aes_key_len - iLen;
+			int iDiff = aes_key_len - uLen;
 			char szKey[aes_key_len] = { 0 };
 			for (int i = 0;i < iDiff;i++)
 			{

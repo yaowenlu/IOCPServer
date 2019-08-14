@@ -15,7 +15,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <None Include="ReadMe.txt" />
     <None Include="res\GameServer.rc2">
       <Filter>资源文件</Filter>
     </None>
@@ -69,6 +68,12 @@
     <ClInclude Include="..\..\common\include\ProxyDefine.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\common\include\CommDefine.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\common\include\CommEncrypt.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="GameServer.cpp">
@@ -96,6 +101,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="..\..\common\src\SpdlogImpl.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\common\src\CommEncrypt.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

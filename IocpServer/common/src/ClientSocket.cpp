@@ -144,15 +144,33 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount, std::list<sJobItem *> &ls
 			DWORD dwRealLen = dwMsgSize;
 			char szRealBuff[MAX_SEND_SIZE * 2] = { 0 };
 			bool bSucc = true;
-			if (dwMsgSize > sizeof(DWORD))
+			do 
 			{
+				if (dwMsgSize <= sizeof(DWORD))
+				{
+					loggerIns()->error("dwMsgSize={} is illegal!", dwMsgSize);
+					bSucc = false;
+					break;
+				}
 				//先解密数据
 				if (g_encrypt)
 				{
-					string strData = yEncryptIns()->AesEncrypt(m_szRecvBuf + sizeof(DWORD), dwMsgSize - sizeof(DWORD), g_aes_key, false);
-					dwRealLen = sizeof(DWORD) + strData.length();
-					memcpy(szRealBuff, &dwRealLen, sizeof(DWORD));
-					memcpy(szRealBuff + sizeof(DWORD), strData.c_str(), strData.length());
+					char* pData = nullptr;
+					unsigned int uDataLen = 0;
+					yEncryptIns()->AesEncrypt(m_szRecvBuf + sizeof(DWORD), dwMsgSize - sizeof(DWORD), pData, uDataLen, g_aes_key, false);
+					if (pData && uDataLen > 0)
+					{
+						dwRealLen = sizeof(DWORD) + uDataLen;
+						memcpy(szRealBuff, &dwRealLen, sizeof(DWORD));
+						memcpy(szRealBuff + sizeof(DWORD), pData, uDataLen);
+						delete[] pData;
+					}
+					else
+					{
+						loggerIns()->error("{} AesEncrypt fail! pData={}, uDataLen={}", __FUNCTION__, static_cast<void*>(pData), uDataLen);
+						bSucc = false;
+						break;
+					}
 				}
 				else
 				{
@@ -160,44 +178,40 @@ bool CClientSocket::OnRecvCompleted(DWORD dwRecvCount, std::list<sJobItem *> &ls
 					memcpy(szRealBuff, m_szRecvBuf, dwRealLen);
 				}
 				enHeadType* pHeadType = reinterpret_cast<enHeadType*>(&(szRealBuff[sizeof(DWORD)]));
-				if (nullptr != pHeadType)
+				if (!pHeadType)
 				{
-					enHeadType curType = *pHeadType;
-					if (MSG_HEAD == curType)
+					loggerIns()->error("pHeadType is null!");
+					bSucc = false;
+					break;
+				}
+				enHeadType curType = *pHeadType;
+				if (MSG_HEAD == curType)
+				{
+					loggerIns()->info("recv a normal msg finish, dwMsgSize={}", dwRealLen);
+					if (dwRealLen < sizeof(NetMsgHead))
 					{
-						loggerIns()->info("recv a normal msg finish, dwMsgSize={}", dwRealLen);
-						if (dwRealLen < sizeof(NetMsgHead))
-						{
-							loggerIns()->error("dwMsgSize={} is illegal!", dwRealLen);
-							bSucc = false;
-						}
-					}
-					else if (PROXY_HEAD == curType)
-					{
-						loggerIns()->info("recv a proxy msg finish, dwMsgSize={}", dwRealLen);
-						if (dwRealLen < sizeof(NetMsgHead) + sizeof(sProxyHead))
-						{
-							loggerIns()->error("dwMsgSize={} is illegal!", dwRealLen);
-							bSucc = false;
-						}
-					}
-					else
-					{
-						loggerIns()->error("recv a unsupport msg! curType={},dwMsgSize={}", curType, dwRealLen);
+						loggerIns()->error("dwMsgSize={} is illegal!", dwRealLen);
 						bSucc = false;
+						break;
+					}
+				}
+				else if (PROXY_HEAD == curType)
+				{
+					loggerIns()->info("recv a proxy msg finish, dwMsgSize={}", dwRealLen);
+					if (dwRealLen < sizeof(NetMsgHead) + sizeof(sProxyHead))
+					{
+						loggerIns()->error("dwMsgSize={} is illegal!", dwRealLen);
+						bSucc = false;
+						break;
 					}
 				}
 				else
 				{
-					loggerIns()->error("pHeadType is null!");
+					loggerIns()->error("recv a unsupport msg! curType={},dwMsgSize={}", curType, dwRealLen);
 					bSucc = false;
+					break;
 				}
-			}
-			else
-			{
-				loggerIns()->error("dwMsgSize={} is illegal!", dwMsgSize);
-				bSucc = false;
-			}
+			} while (0);
 
 			//非法数据包
 			if (!bSucc)
@@ -247,7 +261,11 @@ int CClientSocket::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD 
 		//加密时发送的数据长度可能会变长
 		if (g_encrypt)
 		{
-			uRealSize = uSendSize - (uSendSize - sizeof(DWORD)) % AES_BLOCK_SIZE + AES_BLOCK_SIZE;
+			unsigned int uMod = (uSendSize - sizeof(DWORD)) % AES_BLOCK_SIZE;
+			if (0 != uMod)
+			{
+				uRealSize = uSendSize - uMod + AES_BLOCK_SIZE;
+			}
 		}
 		UINT leftLen = SED_SIZE - m_dwSendBuffLen;
 		EnterCriticalSection(&m_csSendLock);
@@ -286,14 +304,25 @@ int CClientSocket::SendData(void* pData, DWORD dwDataLen, DWORD dwMainID, DWORD 
 		//加密后数据可能会变长
 		if (g_encrypt)
 		{
-			string strData = yEncryptIns()->AesEncrypt(m_szSendBuf + m_dwSendBuffLen + sizeof(DWORD), uSendSize - sizeof(DWORD), g_aes_key, true);
-			unsigned int uLen = strData.length();
-			if (uLen != uRealSize - sizeof(DWORD))
+			char* pData = nullptr;
+			unsigned int uDataLen = 0;
+			yEncryptIns()->AesEncrypt(m_szSendBuf + m_dwSendBuffLen + sizeof(DWORD), uSendSize - sizeof(DWORD), pData, uDataLen, g_aes_key, true);
+			if (pData && uDataLen > 0)
 			{
-				loggerIns()->warn("{} uLen={}, uRealSize={}", __FUNCTION__, uLen, uRealSize);
-				pNetHead->headComm.uTotalLen = uLen + sizeof(DWORD);
+				if (uDataLen != uRealSize - sizeof(DWORD))
+				{
+					loggerIns()->warn("{} uDataLen={}, uRealSize={}", __FUNCTION__, uDataLen, uRealSize);
+					pNetHead->headComm.uTotalLen = uDataLen + sizeof(DWORD);
+				}
+				//拷贝加密后的数据
+				memcpy(m_szSendBuf + m_dwSendBuffLen + sizeof(DWORD), pData, uDataLen);
+				delete[] pData;
 			}
-			memcpy(m_szSendBuf + sizeof(DWORD), strData.c_str(), uLen);
+			else
+			{
+				pNetHead->headComm.uTotalLen = 0;
+				loggerIns()->error("{} AesEncrypt fail! pData={}, uDataLen={}", __FUNCTION__, static_cast<void*>(pData), uDataLen);
+			}
 		}
 		m_dwSendBuffLen += pNetHead->headComm.uTotalLen;
 		LeaveCriticalSection(&m_csSendLock);
@@ -323,10 +352,20 @@ bool CClientSocket::OnSendBegin()
 			//发送前先加密数据
 			if (g_encrypt)
 			{
-				std::string strData = yEncryptIns()->AesEncrypt(iterBuf->pBuff + sizeof(DWORD), iterBuf->usBuffLen - sizeof(DWORD), g_aes_key, true);
-				m_dwSendBuffLen = strData.length() + sizeof(DWORD);
-				memcpy(m_szSendBuf, &m_dwSendBuffLen, sizeof(DWORD));
-				memcpy(m_szSendBuf + sizeof(DWORD), strData.c_str(), m_dwSendBuffLen - sizeof(DWORD));
+				char* pData = nullptr;
+				unsigned int uDataLen = 0;
+				yEncryptIns()->AesEncrypt(iterBuf->pBuff + sizeof(DWORD), iterBuf->usBuffLen - sizeof(DWORD), pData, uDataLen, g_aes_key, true);
+				if (pData && uDataLen > 0)
+				{
+					m_dwSendBuffLen = uDataLen + sizeof(DWORD);
+					memcpy(m_szSendBuf, &m_dwSendBuffLen, sizeof(DWORD));
+					memcpy(m_szSendBuf + sizeof(DWORD), pData, uDataLen);
+					delete[] pData;
+				}
+				else
+				{
+					loggerIns()->error("{} AesEncrypt fail! pData={}, uDataLen={}", __FUNCTION__, static_cast<void*>(pData), uDataLen);
+				}
 			}
 			else
 			{
@@ -395,7 +434,9 @@ bool CClientSocket::OnSendCompleted(DWORD dwSendCount)
 	return bSucc;
 }
 
-//处理消息
+/*********处理消息
+pMsgBuf:未加密的数据
+****************/
 bool CClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 {
 	//处理心跳消息
@@ -427,7 +468,9 @@ bool CClientSocket::HandleMsg(void *pMsgBuf, DWORD dwBufLen)
 	return true;
 }
 
-//处理普通消息
+/*****************处理普通消息
+pMsgBuf:未加密的数据
+******************************/
 bool CClientSocket::HandleNormalMsg(void *pMsgBuf, DWORD dwBufLen)
 {
 	if (dwBufLen < sizeof(NetMsgHead))
@@ -494,7 +537,9 @@ bool CClientSocket::HandleNormalMsg(void *pMsgBuf, DWORD dwBufLen)
 	return false;
 }
 
-//处理代理消息
+/*****************处理代理消息
+pMsgBuf:未加密的数据
+******************************/
 bool CClientSocket::HandleProxyMsg(void *pMsgBuf, DWORD dwBufLen)
 {
 	if (dwBufLen < sizeof(sProxyHead) + sizeof(NetMsgHead))
@@ -512,15 +557,28 @@ bool CClientSocket::HandleProxyMsg(void *pMsgBuf, DWORD dwBufLen)
 	return false;
 }
 
-//发送代理数据
+/*****************发送代理数据
+pMsgBuf:未加密的数据
+******************************/
 int CClientSocket::SendProxyMsg(void *pMsgBuf, DWORD dwBufLen)
 {
+	UINT uRealSize = dwBufLen;
+	//加密时发送的数据长度可能会变长
+	if (g_encrypt)
+	{
+		unsigned int uMod = (dwBufLen - sizeof(DWORD)) % AES_BLOCK_SIZE;
+		if (0 != uMod)
+		{
+			uRealSize = dwBufLen - uMod + AES_BLOCK_SIZE;
+		}
+	}
+	UINT leftLen = SED_SIZE - m_dwSendBuffLen;
 	EnterCriticalSection(&m_csSendLock);
 	//缓冲区满了
-	if (dwBufLen > (SED_SIZE - m_dwSendBuffLen))
+	if (uRealSize > leftLen)
 	{
-		loggerIns()->warn("{} dwBufLen={} is bigger than left buflen={}, m_lstSendBuff.size={}, m_i64Index={}, i64SrvIndex={}",
-			__FUNCTION__, dwBufLen, SED_SIZE - m_dwSendBuffLen, m_lstSendBuff.size(), m_i64Index, GetSrvIndex());
+		loggerIns()->warn("{} uRealSize={} is bigger than left buflen={}, m_lstSendBuff.size={}, m_i64Index={}, i64SrvIndex={}",
+			__FUNCTION__, uRealSize, leftLen, m_lstSendBuff.size(), m_i64Index, GetSrvIndex());
 		if (!AddSendBuf(pMsgBuf, dwBufLen))
 		{
 			loggerIns()->error("{} AddSendBuf fail!", __FUNCTION__);
@@ -531,7 +589,35 @@ int CClientSocket::SendProxyMsg(void *pMsgBuf, DWORD dwBufLen)
 
 	//发送数据
 	CopyMemory(m_szSendBuf + m_dwSendBuffLen, pMsgBuf, dwBufLen);
-	m_dwSendBuffLen += dwBufLen;
+	//加密数据
+	if (g_encrypt)
+	{
+		char* pData = nullptr;
+		unsigned int uDataLen = 0;
+		yEncryptIns()->AesEncrypt(m_szSendBuf + m_dwSendBuffLen + sizeof(DWORD), dwBufLen - sizeof(DWORD), pData, uDataLen, g_aes_key, true);
+		if (pData && uDataLen > 0)
+		{
+			if (uDataLen != uRealSize - sizeof(DWORD))
+			{
+				loggerIns()->warn("{} uDataLen={}, uRealSize={}", uDataLen, uRealSize);
+				uRealSize = uDataLen + sizeof(DWORD);
+				DWORD* pRealSize = reinterpret_cast<DWORD*>(m_szSendBuf + m_dwSendBuffLen);
+				if (pRealSize)
+				{
+					*pRealSize = uRealSize;
+				}
+			}
+			//拷贝加密后的数据
+			memcpy(m_szSendBuf + m_dwSendBuffLen + sizeof(DWORD), pData, uDataLen);
+			delete[] pData;
+		}
+		else
+		{
+			loggerIns()->error("{} AesEncrypt fail! pData={}, uDataLen={}", __FUNCTION__, static_cast<void*>(pData), uDataLen);
+			uRealSize = 0;
+		}
+	}
+	m_dwSendBuffLen += uRealSize;
 	LeaveCriticalSection(&m_csSendLock);
 	OnSendBegin();
 	return 0;
@@ -542,12 +628,23 @@ int CClientSocket::SendProxyMsg(sProxyHead proxyHead, void* pData, DWORD dwDataL
 {
 	//锁定数据
 	UINT uSendSize = sizeof(sProxyHead) + sizeof(NetMsgHead) + dwDataLen;
+	UINT uRealSize = uSendSize;
+	//加密时发送的数据长度可能会变长
+	if (g_encrypt)
+	{
+		unsigned int uMod = (uSendSize - sizeof(DWORD)) % AES_BLOCK_SIZE;
+		if (0 != uMod)
+		{
+			uRealSize = uSendSize - uMod + AES_BLOCK_SIZE;
+		}
+	}
+	UINT leftLen = SED_SIZE - m_dwSendBuffLen;
 	EnterCriticalSection(&m_csSendLock);
 	//缓冲区满了
-	if (uSendSize > (SED_SIZE - m_dwSendBuffLen))
+	if (uRealSize > leftLen)
 	{
-		loggerIns()->warn("{} uSendSize={} is bigger than left buflen={},  m_i64Index={}, m_lstSendBuff.size={}, i64SrvIndex={}, dwMainID={}, dwAssID={}, dwHandleCode{}",
-			__FUNCTION__, uSendSize, SED_SIZE - m_dwSendBuffLen, m_i64Index, m_lstSendBuff.size(), GetSrvIndex(), dwMainID, dwAssID, dwHandleCode);
+		loggerIns()->warn("{} uRealSize={} is bigger than left buflen={},  m_i64Index={}, m_lstSendBuff.size={}, i64SrvIndex={}, dwMainID={}, dwAssID={}, dwHandleCode{}",
+			__FUNCTION__, uRealSize, leftLen, m_i64Index, m_lstSendBuff.size(), GetSrvIndex(), dwMainID, dwAssID, dwHandleCode);
 		NetMsgHead msgHead;
 		msgHead.dwMainID = dwMainID;
 		msgHead.dwAssID = dwAssID;
@@ -568,7 +665,7 @@ int CClientSocket::SendProxyMsg(sProxyHead proxyHead, void* pData, DWORD dwDataL
 		return -1;
 	}
 	*pHead = proxyHead;
-	pHead->headComm.uTotalLen = uSendSize;
+	pHead->headComm.uTotalLen = uRealSize;
 	NetMsgHead* pMsgHead = reinterpret_cast<NetMsgHead*>(m_szSendBuf + m_dwSendBuffLen + sizeof(sProxyHead));
 	if (!pMsgHead)
 	{
@@ -583,7 +680,30 @@ int CClientSocket::SendProxyMsg(sProxyHead proxyHead, void* pData, DWORD dwDataL
 	pMsgHead->dwReserve = 0;
 	if (pData)
 		CopyMemory(pMsgHead + 1, pData, dwDataLen);
-	m_dwSendBuffLen += uSendSize;
+	//加密数据
+	if (g_encrypt)
+	{
+		char* pData = nullptr;
+		unsigned int uDataLen = 0;
+		yEncryptIns()->AesEncrypt(m_szSendBuf + m_dwSendBuffLen + sizeof(DWORD), uSendSize - sizeof(DWORD), pData, uDataLen, g_aes_key, true);
+		if (pData && uDataLen > 0)
+		{
+			if (uDataLen != uRealSize - sizeof(DWORD))
+			{
+				loggerIns()->warn("{} uDataLen={}, uRealSize={}", uDataLen, uRealSize);
+				pHead->headComm.uTotalLen = uDataLen + sizeof(DWORD);
+			}
+			//拷贝加密后的数据
+			memcpy(m_szSendBuf + m_dwSendBuffLen + sizeof(DWORD), pData, uDataLen);
+			delete[] pData;
+		}
+		else
+		{
+			loggerIns()->error("{} AesEncrypt fail! pData={}, uDataLen={}", __FUNCTION__, static_cast<void*>(pData), uDataLen);
+			pHead->headComm.uTotalLen = 0;
+		}
+	}
+	m_dwSendBuffLen += pHead->headComm.uTotalLen;
 	LeaveCriticalSection(&m_csSendLock);
 	OnSendBegin();
 	return 0;
@@ -597,7 +717,7 @@ bool CClientSocket::AddSendBuf(sProxyHead proxyHead, NetMsgHead msgHead, void* p
 		loggerIns()->error("{} m_lstSendBuff.size={} too large!", __FUNCTION__, m_lstSendBuff.size());
 		return false;
 	}
-	USHORT uTotalSize = sizeof(sProxyHead) + sizeof(NetMsgHead) + dwLen;
+	USHORT uTotalSize = static_cast<USHORT>(sizeof(sProxyHead) + sizeof(NetMsgHead) + dwLen);
 	sSendBuff tmpBuff;
 	tmpBuff.usBuffLen = uTotalSize;
 	tmpBuff.pBuff = new char[uTotalSize + 1];
@@ -639,7 +759,7 @@ bool CClientSocket::AddSendBuf(NetMsgHead msgHead, void* pBuff, DWORD dwLen)
 		loggerIns()->error("{} m_lstSendBuff.size={} too large!", __FUNCTION__, m_lstSendBuff.size());
 		return false;
 	}
-	USHORT uTotalSize = sizeof(NetMsgHead) + dwLen;
+	USHORT uTotalSize = static_cast<USHORT>(sizeof(NetMsgHead) + dwLen);
 	sSendBuff tmpBuff;
 	tmpBuff.usBuffLen = uTotalSize;
 	tmpBuff.pBuff = new char[uTotalSize + 1];
@@ -676,7 +796,7 @@ bool CClientSocket::AddSendBuf(void* pBuff, DWORD dwLen)
 	{
 		return true;
 	}
-	USHORT uTotalSize = dwLen;
+	USHORT uTotalSize = static_cast<USHORT>(dwLen);
 	sSendBuff tmpBuff;
 	tmpBuff.usBuffLen = uTotalSize;
 	tmpBuff.pBuff = new char[uTotalSize + 1];

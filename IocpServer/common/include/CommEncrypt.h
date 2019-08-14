@@ -23,7 +23,7 @@ private:
 
 public:
 	//Aes加/解密
-	string AesEncrypt(char* pData, unsigned int uLen, string strKey, bool bEncrypt);
+	bool AesEncrypt(const char* pData, const unsigned int uLen, char* &pOutData, unsigned int &uOutLen, string strKey, bool bEncrypt);
 
 private:
 	//处理key使之合法
