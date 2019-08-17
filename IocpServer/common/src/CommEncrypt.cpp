@@ -84,6 +84,10 @@ bool CYEncrypt::AesEncrypt(const char* pData, const unsigned int uLen, char* &pO
 		uOutLen = uLen - iMod + AES_BLOCK_SIZE;
 	}
 	pOutData = new char[uOutLen];
+	if (!pOutData)
+	{
+		return false;
+	}
 	memset(pOutData, 0, sizeof(char)*(uOutLen));
 	if (bEncrypt)
 	{
