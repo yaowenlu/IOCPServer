@@ -39,7 +39,7 @@ void CCommEvent::AddOneEvent(std::string strEventName, void *pEventFunc, void *p
 	map<string, sEventInfo>::iterator itEvent = m_mapEvent.find(strEventName);
 	if(itEvent != m_mapEvent.end())
 	{
-		loggerIns()->warn("AddOneEvent strEventName={} already exist!", strEventName);
+		loggerIns()->warn("{} strEventName={} already exist!", __FUNCTION__, strEventName);
 	}
 	else
 	{
@@ -47,6 +47,7 @@ void CCommEvent::AddOneEvent(std::string strEventName, void *pEventFunc, void *p
 		curEvent.pEventFunc = pEventFunc;
 		curEvent.pFuncParam = pFuncParam;
 		m_mapEvent[strEventName] = curEvent;
+		loggerIns()->info("{} strEventName={} added!", __FUNCTION__, strEventName);
 	}
 	LeaveCriticalSection(&m_csEventLock);
 }
@@ -59,6 +60,11 @@ void CCommEvent::RemoveOneEvent(std::string strEventName)
 	if(itEvent != m_mapEvent.end())
 	{
 		m_mapEvent.erase(itEvent);
+		loggerIns()->info("{} strEventName={} removed!", __FUNCTION__, strEventName);
+	}
+	else
+	{
+		loggerIns()->warn("{} strEventName={} not exist!", __FUNCTION__, strEventName);
 	}
 	LeaveCriticalSection(&m_csEventLock);
 }
@@ -70,14 +76,21 @@ void CCommEvent::NotifyOneEvent(std::string strEventName)
 	map<string, sEventInfo>::iterator itEvent = m_mapEvent.find(strEventName);
 	if(itEvent == m_mapEvent.end())
 	{
-		loggerIns()->warn("NotifyOneEvent strEventName={} not exist!", strEventName);
+		loggerIns()->warn("{} strEventName={} not exist!", __FUNCTION__, strEventName);
 	}
 	else
 	{
 		if(nullptr != itEvent->second.pEventFunc)
 		{
 			m_callBack = reinterpret_cast<func_callback>(itEvent->second.pEventFunc);
-			(*m_callBack)(strEventName, itEvent->second.pFuncParam);
+			if (m_callBack)
+			{
+				(*m_callBack)(strEventName, itEvent->second.pFuncParam);
+			}
+			else
+			{
+				loggerIns()->warn("{} strEventName={}, m_callBack is null!", __FUNCTION__, strEventName);
+			}
 		}
 	}
 	LeaveCriticalSection(&m_csEventLock);

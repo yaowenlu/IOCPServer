@@ -3,9 +3,15 @@
 #ifndef MSG_DEFINE_H
 #define MSG_DEFINE_H
 
-#define MAIN_KEEP_ALIVE	100
+//心跳消息
+#define MAIN_KEEP_ALIVE		100
 #define ASS_SC_KEEP_ALIVE	1
 #define ASS_CS_KEEP_ALIVE	2
+
+//测试消息
+#define MAIN_TEST_MSG	110
+#define ASS_SC_TEST		1
+#define ASS_CS_TEST		2
 
 ///网络数据包结构头
 struct NetMsgHead

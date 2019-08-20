@@ -5,4 +5,4 @@
 #include <string>
 using namespace std;
 
-const string EVENT_NEW_JOB_ADD = "event_new_job_add";
+const string EVENT_NEW_JOB_ADD = "event_new_job_add";//socket接收到新任务

@@ -207,7 +207,7 @@ bool CSocketManager::ProcessIOMessage(CClientSocket *pClient, sOverLapped *pOver
 				{
 					if (AddOneJob(*iterJob))
 					{
-						CCommEvent::GetInstance()->NotifyOneEvent(EVENT_NEW_JOB_ADD);
+						yEventIns()->NotifyOneEvent(EVENT_NEW_JOB_ADD);
 					}
 				}
 			}
@@ -406,7 +406,7 @@ void CSocketManager::AddHeartJob()
 		memcpy(pJob->pJobBuff, &msgHead, pJob->dwBufLen);
 		if (AddOneJob(pJob))
 		{
-			CCommEvent::GetInstance()->NotifyOneEvent(EVENT_NEW_JOB_ADD);
+			yEventIns()->NotifyOneEvent(EVENT_NEW_JOB_ADD);
 		}
 	}
 }

@@ -33,7 +33,7 @@ private:
 	static CYEncrypt* m_pInstance;//单例
 };
 
-//获取logger
+//获取实例
 static CYEncrypt* yEncryptIns()
 {
 	return CYEncrypt::GetInstance();

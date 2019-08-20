@@ -246,14 +246,14 @@ yServerImpl::yServerImpl()
 	m_hListenThread = NULL;
 	m_lsSocket = INVALID_SOCKET;
 	m_pSrvSocketManager = nullptr;
-	CCommEvent::GetInstance();
+	yEventIns();
 	loggerIns()->debug("constructor yServerImpl finish!");
 }
 
 yServerImpl::~yServerImpl()
 {
 	StopService();
-	CCommEvent::GetInstance()->ReleaseInstance();
+	yEventIns()->ReleaseInstance();
 	loggerIns()->debug("distructor yServerImpl finish!");
 }
 
@@ -298,7 +298,7 @@ int yServerImpl::StopService()
 	}
 
 	//移除事件
-	CCommEvent::GetInstance()->RemoveOneEvent(EVENT_NEW_JOB_ADD);
+	yEventIns()->RemoveOneEvent(EVENT_NEW_JOB_ADD);
 	//关闭Job完成端口
 	if (NULL != m_hJobCompletionPort)
 	{
@@ -416,7 +416,7 @@ int yServerImpl::StartService(sServerInfo serverInfo)
 		return CODE_SERVICE_IO_FAILED;
 	}
 
-	CCommEvent::GetInstance()->AddOneEvent(EVENT_NEW_JOB_ADD, EventFunc, &m_hJobCompletionPort);
+	yEventIns()->AddOneEvent(EVENT_NEW_JOB_ADD, EventFunc, &m_hJobCompletionPort);
 	//启动工作线程
 	iRet = StartJobWork(serverInfo.iJobThreadNum);
 	if(0 != iRet)

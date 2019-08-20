@@ -322,14 +322,14 @@ yClientImpl::yClientImpl()
 	m_hIoCompletionPort = NULL;
 	m_hJobCompletionPort = NULL;
 	m_pCltSocketManage = nullptr;
-	CCommEvent::GetInstance();
+	yEventIns();
 	loggerIns()->debug("constructor yClientImpl finish!");
 }
 
 yClientImpl::~yClientImpl()
 {
 	DisConnectServer();
-	CCommEvent::GetInstance()->ReleaseInstance();
+	yEventIns()->ReleaseInstance();
 	loggerIns()->debug("distructor yClientImpl finish!");
 }
 
@@ -370,7 +370,7 @@ int yClientImpl::DisConnectServer()
 	}
 
 	//移除事件
-	CCommEvent::GetInstance()->RemoveOneEvent(EVENT_NEW_JOB_ADD);
+	yEventIns()->RemoveOneEvent(EVENT_NEW_JOB_ADD);
 	//关闭Job完成端口
 	if (NULL != m_hJobCompletionPort)
 	{
@@ -479,7 +479,7 @@ int yClientImpl::ConnectServer(sConnectInfo connectInfo)
 		DisConnectServer();
 		return CODE_SERVICE_CREATE_IOCP_ERROR;
 	}
-	CCommEvent::GetInstance()->AddOneEvent(EVENT_NEW_JOB_ADD, EventFunc, &m_hJobCompletionPort);
+	yEventIns()->AddOneEvent(EVENT_NEW_JOB_ADD, EventFunc, &m_hJobCompletionPort);
 
 	ActiveConnect(m_connectInfo.iConnectNum);
 	m_pCltSocketManage->SetIsShutDown(false);
@@ -818,20 +818,23 @@ unsigned __stdcall yClientImpl::TestThreadProc(LPVOID pParam)
 		{
 			break;
 		}
-		BYTE byData[MAX_SEND_SIZE] = {0};
-		std::string strData = "kaj8928tskdtjw90vuyv923m209vun0238uy5n2chxq8923hx98thnvutwehnc2934th298nchces测试消息破口破口赔偿金平均分苏东坡就iorjgoi jiojo l;kdslkgj8wu9wi -0";
-		memcpy(byData, strData.c_str(), strData.length());
-		if (pClientSocket->m_connectInfo.bUseProxy)
-		{
-			pCltSocketManage->SendProxyMsg(0, byData, sizeof(byData), 150, 15, 1);
-		}
-		else
-		{
-			pCltSocketManage->SendData(0, byData, sizeof(byData), 150, 15, 1);
-		}
 		int iRandConnect = rand()%11 + 10;
 		pClientSocket->ActiveConnect(iRandConnect);
 		pCltSocketManage->CloseConnection(iRandConnect);
+		//发送测试数据
+		BYTE byData[MAX_SEND_SIZE] = { 0 };
+		for (int i = 0;i < MAX_SEND_SIZE-1;i++)
+		{
+			byData[i] = rand() % 256;
+		}
+		if (pClientSocket->m_connectInfo.bUseProxy)
+		{
+			pCltSocketManage->SendProxyMsg(0, byData, sizeof(byData), MAIN_TEST_MSG, ASS_CS_TEST, 1);
+		}
+		else
+		{
+			pCltSocketManage->SendData(0, byData, sizeof(byData), MAIN_TEST_MSG, ASS_CS_TEST, 1);
+		}
 	}
 	loggerIns()->info("TestThreadProc exit! iThreadIndex={}", iThreadIndex);
 	SetEvent(hThreadEvent);

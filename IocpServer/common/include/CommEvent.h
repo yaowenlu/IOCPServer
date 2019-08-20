@@ -38,3 +38,9 @@ private:
 	CRITICAL_SECTION m_csEventLock;
 	func_callback m_callBack;
 };
+
+//»ñÈ¡ÊµÀý
+static CCommEvent* yEventIns()
+{
+	return CCommEvent::GetInstance();
+}
