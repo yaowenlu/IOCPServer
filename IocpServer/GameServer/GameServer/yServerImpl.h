@@ -90,7 +90,7 @@ protected:
 	int StartListen(int iPort);
 
 	//连接代理服务器
-	bool ConnectProxy();
+	bool ConnectProxy(DWORD dwNum);
 
 
 	//开始定时器

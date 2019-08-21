@@ -9,7 +9,7 @@
 **************************************/
 
 //ip长度限制
-#define MAX_IP_LEN 32
+#define MAX_IP_LEN 64
 
 //消息是否进行加密
 const bool g_encrypt = true;
@@ -63,12 +63,15 @@ struct sServerInfo
 	}
 };
 
+//最大代理数
+#define MAX_PROXY_COUNT	255
+
 //代理服务器信息
 struct sProxyInfo
 {
 	bool bUseProxy;//是否使用代理
-	char szProxyIp[MAX_IP_LEN];//代理服务器Ip
-	int iProxyPort;//代理服务器端口
+	char szProxyIp[MAX_PROXY_COUNT][MAX_IP_LEN];//代理服务器Ip
+	int iProxyPort[MAX_PROXY_COUNT];//代理服务器端口
 	sProxyInfo()
 	{
 		memset(this, 0, sizeof(*this));

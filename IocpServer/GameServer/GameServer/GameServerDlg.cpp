@@ -30,6 +30,29 @@ std::string TChar2String(TCHAR *pChar)
 	return str;
 }
 
+//根据指定字符拆分string
+void SplitString(std::string strData, char cSplit, std::vector<std::string> &vecData)
+{
+	vecData.clear();
+	if (strData.length() <= 0)
+	{
+		return;
+	}
+	std::string::size_type iBegin = 0;
+	std::string::size_type iFind = strData.find(cSplit, iBegin);
+	while (iFind != std::string::npos)
+	{
+		vecData.push_back(strData.substr(iBegin, iFind - iBegin));
+		iBegin = iFind + 1;
+		iFind = strData.find(cSplit, iBegin);
+	}
+	if (iBegin < strData.length())
+	{
+		vecData.push_back(strData.substr(iBegin, iFind - strData.length()));
+	}
+	return;
+}
+
 // 用于应用程序“关于”菜单项的 CAboutDlg 对话框
 
 class CAboutDlg : public CDialogEx
@@ -279,14 +302,36 @@ void CGameServerDlg::ReadCfg()
 	m_sProxyInfo.bUseProxy = GetPrivateProfileIntA(strKey.c_str(), "UseProxy", 1, strCfgFileName.c_str());
 	m_chUseProxy.SetCheck(m_sProxyInfo.bUseProxy);
 
-	char szIp[MAX_IP_LEN] = { 0 };
+	char szIp[MAX_PROXY_COUNT*MAX_IP_LEN] = { 0 };
 	GetPrivateProfileStringA(strKey.c_str(), "ProxyIp", "127.0.0.1", szIp, sizeof(szIp), strCfgFileName.c_str());
 	SetWindowTextA(m_edProxyIp, szIp);
-	memcpy(m_sProxyInfo.szProxyIp, szIp, sizeof(szIp));
+	std::vector<std::string> vecIp;
+	SplitString(szIp, '|', vecIp);
+	if (vecIp.size() > 0)
+	{
+		for (int i = 0;i < vecIp.size();i++)
+		{
+			memcpy(m_sProxyInfo.szProxyIp[i], vecIp[i].c_str(), vecIp[i].length());
+		}
+	}
 
-	m_sProxyInfo.iProxyPort = GetPrivateProfileIntA(strKey.c_str(), "ProxyPort", 6080, strCfgFileName.c_str());
-	strTmp.Format(_T("%d"), m_sProxyInfo.iProxyPort);
-	m_edProxyPort.SetWindowText(strTmp);
+	char szPort[MAX_PROXY_COUNT * MAX_IP_LEN] = { 0 };
+	GetPrivateProfileStringA(strKey.c_str(), "ProxyPort", "6080", szPort, sizeof(szPort), strCfgFileName.c_str());
+	SetWindowTextA(m_edProxyPort, szPort);
+	std::vector<std::string> vecPort;
+	SplitString(szPort, '|', vecPort);
+	if (vecPort.size() > 0)
+	{
+		for (int i = 0;i < vecPort.size();i++)
+		{
+			m_sProxyInfo.iProxyPort[i] = atoi(vecPort[i].c_str());
+		}
+	}
+
+	if (vecIp.size() != vecPort.size())
+	{
+		m_lstLogs.InsertItem(m_lstLogs.GetItemCount(), _T("ip count must same as port count!"));
+	}
 }
 
 //读取配置文件
@@ -298,7 +343,7 @@ void CGameServerDlg::WriteCfg()
 	strCfgFileName += "/conf/CommonCfg.ini";
 
 	std::string strKey = "config";
-	TCHAR szTmp[64] = { 0 };
+	TCHAR szTmp[MAX_PROXY_COUNT*MAX_IP_LEN] = { 0 };
 	m_edListenPort.GetWindowText(szTmp, sizeof(szTmp));
 	WritePrivateProfileStringA(strKey.c_str(), "ListenPort", TChar2String(szTmp).c_str(), strCfgFileName.c_str());
 	m_sServerInfo.iListenPort = atoi(TChar2String(szTmp).c_str());
@@ -331,11 +376,32 @@ void CGameServerDlg::WriteCfg()
 	memset(szTmp, 0, sizeof(szTmp));
 	m_edProxyIp.GetWindowText(szTmp, sizeof(szTmp));
 	WritePrivateProfileStringA(strKey.c_str(), "ProxyIp", TChar2String(szTmp).c_str(), strCfgFileName.c_str());
-	memcpy(m_sProxyInfo.szProxyIp, TChar2String(szTmp).c_str(), sizeof(m_sProxyInfo.szProxyIp));
+	std::vector<std::string> vecIp;
+	SplitString(TChar2String(szTmp), '|', vecIp);
+	if (vecIp.size() > 0)
+	{
+		for (int i = 0;i < vecIp.size();i++)
+		{
+			memcpy(m_sProxyInfo.szProxyIp[i], vecIp[i].c_str(), vecIp[i].length());
+		}
+	}
 
 	memset(szTmp, 0, sizeof(szTmp));
 	m_edProxyPort.GetWindowText(szTmp, sizeof(szTmp));
 	WritePrivateProfileStringA(strKey.c_str(), "ProxyPort", TChar2String(szTmp).c_str(), strCfgFileName.c_str());
-	m_sProxyInfo.iProxyPort = atoi(TChar2String(szTmp).c_str());
+	std::vector<std::string> vecPort;
+	SplitString(TChar2String(szTmp), '|', vecPort);
+	if (vecPort.size() > 0)
+	{
+		for (int i = 0;i < vecPort.size();i++)
+		{
+			m_sProxyInfo.iProxyPort[i] = atoi(vecPort[i].c_str());
+		}
+	}
+
+	if (vecIp.size() != vecPort.size())
+	{
+		m_lstLogs.InsertItem(m_lstLogs.GetItemCount(), _T("ip count must same as port count!"));
+	}
 	return;
 }

@@ -455,13 +455,16 @@ int yServerImpl::StartService(sServerInfo serverInfo, sProxyInfo proxyInfo)
 	//连接代理服务器
 	if (m_proxyInfo.bUseProxy)
 	{
-		//建立多个连接，方便不同连接同时收发数据
-		//for (DWORD i = 0;i < SystemInfo.dwNumberOfProcessors;i++)
+		//可连接多个代理服
+		for (DWORD dwNum = 0;dwNum < MAX_PROXY_COUNT;dwNum++)
 		{
-			if (!ConnectProxy())
+			if (!ConnectProxy(dwNum))
 			{
-				StopService();
-				return CODE_SERVICE_CONNECT_FAILED;
+				if (0 == dwNum)
+				{
+					StopService();
+					return CODE_SERVICE_CONNECT_FAILED;
+				}
 			}
 		}
 	}
@@ -592,8 +595,13 @@ int yServerImpl::StartListen(int iPort)
 }
 
 //连接代理服务器
-bool yServerImpl::ConnectProxy()
+bool yServerImpl::ConnectProxy(DWORD dwNum)
 {
+	if (dwNum >= MAX_PROXY_COUNT || m_proxyInfo.iProxyPort[dwNum] <= 0)
+	{
+		loggerIns()->warn("{} dwNum={} return!", __FUNCTION__, dwNum);
+		return false;
+	}
 	//客户端套接字
 	SOCKET hSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (hSocket == INVALID_SOCKET)
@@ -604,8 +612,8 @@ bool yServerImpl::ConnectProxy()
 
 	sockaddr_in serAddr;
 	serAddr.sin_family = AF_INET;
-	serAddr.sin_port = htons(m_proxyInfo.iProxyPort);
-	inet_pton(AF_INET, m_proxyInfo.szProxyIp, (void*)&serAddr.sin_addr.S_un.S_addr);
+	serAddr.sin_port = htons(m_proxyInfo.iProxyPort[dwNum]);
+	inet_pton(AF_INET, m_proxyInfo.szProxyIp[dwNum], (void*)&serAddr.sin_addr.S_un.S_addr);
 	//与指定IP地址和端口的服务端连接
 	if (connect(hSocket, (sockaddr *)&serAddr, sizeof(serAddr)) == SOCKET_ERROR)
 	{
