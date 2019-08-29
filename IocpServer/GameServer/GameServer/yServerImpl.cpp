@@ -465,6 +465,7 @@ int yServerImpl::StartService(sServerInfo serverInfo, sProxyInfo proxyInfo)
 					StopService();
 					return CODE_SERVICE_CONNECT_FAILED;
 				}
+				break;
 			}
 		}
 	}
